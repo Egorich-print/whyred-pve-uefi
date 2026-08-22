@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>MiToolbox-Native</title>
+    <style>
+        :root { color-scheme: dark; }
+        body { font: 14px -apple-system, sans-serif; margin: 0; background: #101418; color: #d8e0e8; padding: 24px; }
+        h1 { font-size: 16px; margin: 0 0 4px; }
+        .sn { font-family: ui-monospace, monospace; color: #7fb2ff; margin-bottom: 20px; }
+        .card { background: #171d24; border: 1px solid #232b34; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+        .ok { color: #5fd08a; } .bad { color: #ff7b72; } .muted { color: #8a97a5; }
+        button { background: #2563eb; border: 0; border-radius: 8px; color: white; padding: 9px 14px; margin: 6px 6px 0 0; cursor: pointer; font-size: 13px; }
+        button.danger { background: #b91c1c; }
+        button:disabled { opacity: .45; cursor: default; }
+        pre { background: #0c1013; border-radius: 8px; padding: 12px; overflow: auto; max-height: 180px; font-size: 12px; }
+        input[type=file] { display: none; }
+        label.btn { background:#334155; border-radius:8px; padding:9px 14px; cursor:pointer; margin-right:6px; }
+    </style>
+</head>
+<body>
+    <h1>MiToolbox-Native</h1>
+    <div class="sn">target S/N: 19680/68UA04603 (whyred · SDM636)</div>
+
+    <div class="card">
+        <div id="status" class="muted">checking device…</div>
+        <button onclick="refresh()">Refresh</button>
+        <button class="danger" onclick="rebootBootloader()">Reboot → bootloader</button>
+    </div>
+
+    <div class="card">
+        <strong>Flash image to partition</strong><br/>
+        <span class="muted">dist artifacts: uefi_whyred.img → boot · pve_rootfs_arm64.sparse.img → userdata</span>
+        <div>
+            <label class="btn"><input type="file" id="img" />Choose .img…</label>
+            partition:
+            <select id="part">
+                <option>boot</option><option>userdata</option><option>cache</option><option>recovery</option>
+            </select>
+            <button class="danger" onclick="flash()" id="flashBtn">Flash</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <button onclick="probeUnlock()">OEM unlock probe</button>
+        <pre id="log">ready.</pre>
+    </div>
+
+<script>
+const { invoke } = window.__TAURI__.core;
+function log(t){ document.getElementById('log').textContent = t; }
+async function refresh(){
+    const el = document.getElementById('status');
+    const s = await invoke('device_status');
+    if (!s.connected) { el.className='bad'; el.textContent='✗ no fastboot device — plug in with VOL− + USB'; return; }
+    const warn = s.error ? ` ⚠ ${s.error}` : '';
+    el.className = 'ok';
+    el.textContent = `✓ ${s.product ?? '?'} · serial ${s.serial ?? '?'} · bootloader ${s.unlocked ? 'UNLOCKED' : 'locked'}${warn}`;
+}
+async function rebootBootloader(){ try{ await invoke('reboot_bootloader'); log('rebooting…'); }catch(e){ log(e); } await refresh(); }
+async function flash(){
+    const f = document.getElementById('img').files[0];
+    if (!f) return log('pick an image file first');
+    const part = document.getElementById('part').value;
+    document.getElementById('flashBtn').disabled = true;
+    try {
+        // webkit relative path workaround: Tauri fs gives full path via file object
+        const path = f.path || f.name;
+        const out = await invoke('flash_partition', { partition: part, path });
+        log(`flash ${part}: OK\n${(out||[]).join('\n')}`);
+    } catch(e) { log('FAIL: '+e); }
+    document.getElementById('flashBtn').disabled = false;
+}
+async function probeUnlock(){ try{ log(JSON.stringify(await invoke('oem_unlock_probe'), null, 2)); }catch(e){ log(e); } }
+refresh();
+</script>
+</body>
+</html>

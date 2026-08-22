@@ -1,0 +1,10 @@
+[package]
+name = "mibox-core"
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+description = "Fastboot protocol core (rusb transport, no UI deps) — unit-testable"
+
+[dependencies]
+rusb = "0.9"
+anyhow = "1"

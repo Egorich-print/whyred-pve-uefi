@@ -1,0 +1,19 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "MiToolbox-Native",
+    "version": "0.1.0",
+    "identifier": "tech.egorich.mitoolbox",
+    "build": {
+        "frontendDist": "../src"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "MiToolbox-Native — whyred PVE flasher",
+                "width": 720,
+                "height": 560
+            }
+        ],
+        "security": { "csp": null }
+    }
+}
