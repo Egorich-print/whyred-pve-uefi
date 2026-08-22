@@ -1,0 +1,9 @@
+target/
+dist/*.img
+dist/*.fd
+node_modules/
+*.log
+edk2-msm/
+rootfs/
+build/
+.DS_Store
