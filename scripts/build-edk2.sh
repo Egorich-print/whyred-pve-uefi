@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Host-side wrapper: build EDK2 UEFI payload for whyred in the Lima VM.
+# Usage: scripts/build-edk2.sh [vm-name]   (default: pve-builder)
+set -euo pipefail
+
+VM="${1:-pve-builder}"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+limactl start "$VM" >/dev/null 2>&1 || true
+
+echo "[*] syncing build script"
+limactl cp "$REPO/edk2/vm-build-edk2.sh" "$VM:/tmp/vm-build-edk2.sh"
+
+echo "[*] building edk2-msm for whyred (this takes 10-30 min)"
+limactl shell "$VM" -- bash /tmp/vm-build-edk2.sh
+
+mkdir -p "$REPO/dist"
+for f in boot-whyred.img uefi_whyred.fd; do
+    limactl cp "$VM:/home/$USER.linux/edk2-out/$f" "$REPO/dist/" 2>/dev/null ||
+    limactl cp "$VM:edk2-out/$f" "$REPO/dist/" 2>/dev/null || true
+done
+
+echo "[*] dist/ contents:"
+ls -la "$REPO/dist/"
