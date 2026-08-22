@@ -14,10 +14,8 @@ echo "[*] building kernel + rootfs (kernel ~40-60 min, rootfs apt ~20 min)"
 limactl shell "$VM" -- bash /tmp/vm-build-rootfs.sh
 
 mkdir -p "$REPO/dist"
-limactl copy "VM:$HOME/out/Image.gz-whyred" "$REPO/dist/" 2>/dev/null || \
-    limactl copy "$VM:out/Image.gz-whyred" "$REPO/dist/"
-limactl copy "$VM:out/pve_rootfs_arm64.img" "$REPO/dist/" 2>/dev/null || \
-    limactl copy "$VM:out/pve_rootfs_arm64.img" "$REPO/dist/"
+limactl copy "$VM:out/Image.gz-whyred" "$REPO/dist/"
+limactl copy "$VM:out/pve_rootfs_arm64.img" "$REPO/dist/"
 
 # pack ABL-bootable kernel image (Plan B boot path) with our tool
 cd "$REPO/tools"

@@ -15,9 +15,8 @@ echo "[*] building edk2-msm for whyred (this takes 10-30 min)"
 limactl shell "$VM" -- bash /tmp/vm-build-edk2.sh
 
 mkdir -p "$REPO/dist"
-for f in boot-whyred.img uefi_whyred.fd; do
-    limactl cp "$VM:/home/$USER.linux/edk2-out/$f" "$REPO/dist/" 2>/dev/null ||
-    limactl cp "$VM:edk2-out/$f" "$REPO/dist/" 2>/dev/null || true
+for f in $(limactl shell "$VM" -- ls edk2-out 2>/dev/null | grep -E '\.(img|fd)$' || true); do
+    limactl cp "$VM:edk2-out/$f" "$REPO/dist/"
 done
 
 echo "[*] dist/ contents:"

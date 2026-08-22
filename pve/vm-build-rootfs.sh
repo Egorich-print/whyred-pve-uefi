@@ -69,6 +69,7 @@ echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subs
     > /etc/apt/sources.list.d/pve.list
 
 apt-get update
+echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
 apt-get -y install systemd-sysv locales sudo ifupdown2 lxc lxc-pve \
     proxmox-ve postfix chrony open-iscsi
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime || true
@@ -111,7 +112,7 @@ timeout 30
 label pve
     menu label Proxmox VE (whyred)
     linux /boot/Image.gz-whyred
-    fdt /boot/sdm636-xiaomi-whyred.dtb 2>/dev/null || true
+    fdt /boot/sdm636-xiaomi-whyred.dtb
     append console=ttyMSM0,115200n8 earlycon=qcom_geni,0xc170000 root=PARTLABEL=userdata rootwait rw
 EOF
 # dtb alongside (UEFI loaders that take separate fdt)
