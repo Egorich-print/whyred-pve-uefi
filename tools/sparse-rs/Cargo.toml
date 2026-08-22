@@ -1,0 +1,10 @@
+[package]
+name = "sparse-rs"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Android sparse image converter (simg2img / img2simg)"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"

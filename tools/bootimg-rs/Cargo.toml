@@ -1,0 +1,13 @@
+[package]
+name = "bootimg-rs"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+description = "Android boot.img v0-v3 parser, unpacker and packer"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "bootimg"
+path = "src/main.rs"
