@@ -25,13 +25,14 @@ fn device_status() -> DeviceStatus {
                 .map(|v| v == "yes" || v == "true")
                 .unwrap_or(false);
             let matches_serial = serial.as_deref() == Some(TARGET_SERIAL);
+            let mismatch = (!matches_serial && serial.is_some())
+                .then(|| format!("serial mismatch (expected {TARGET_SERIAL})"));
             DeviceStatus {
                 connected: true,
                 serial,
                 product,
                 unlocked,
-                error: (!matches_serial && serial.is_some())
-                    .then(|| format!("serial mismatch (expected {TARGET_SERIAL})")),
+                error: mismatch,
             }
         }
         Err(e) => DeviceStatus { connected: false, serial: None, product: None, unlocked: false, error: Some(e.to_string()) },
