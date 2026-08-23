@@ -60,14 +60,16 @@ export DEBIAN_FRONTEND=noninteractive
 
 hostname whyred-pve
 echo whyred-pve > /etc/hostname
-grep -q whyred-pve /etc/hosts || cat >> /etc/hosts <<EOF2
+cat > /etc/hosts <<EOF2
+127.0.0.1 localhost
 127.0.1.1 whyred-pve
 10.15.0.1 host
 EOF2
 
 # official Proxmox VE arm64 repository (launched 2026-08-05)
-curl -fsSL https://download.proxmox.com/debian/proxmox-release-trixie.gpg \
-    -o /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg
+# release key is staged by the wrapper below (minbase has no curl)
+[ -s /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg ] || {
+    echo "missing proxmox gpg key"; exit 1; }
 echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subscription" \
     > /etc/apt/sources.list.d/pve.list
 
@@ -97,6 +99,9 @@ EOF2
 # root password (operator must change on first login)
 chpasswd <<< 'root:whyred'
 EOS
+sudo mkdir -p "$R/etc/apt/trusted.gpg.d"
+curl -fsSL https://download.proxmox.com/debian/proxmox-release-trixie.gpg | \
+    sudo tee "$R/etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg" >/dev/null
 sudo cp /tmp/chroot-setup.sh "$R/root/" && sudo chmod +x "$R/root/chroot-setup.sh"
 sudo chroot "$R" /root/chroot-setup.sh
 
