@@ -28,7 +28,7 @@ XBL/ABL (Qualcomm) ──▶ UEFI payload in boot partition (edk2-msm, SOC=SDM66
 
 - [x] Phase 1 — recon & hardware extraction (`docs/`)
 - [x] Phase 2 — host tooling in Rust (tested on macOS aarch64)
-- [x] Phase 3 — EDK2 build pipeline (`edk2/build-edk2.sh`, podman)
+- [x] Phase 3 — EDK2 pipeline **VERIFIED**: `dist/boot-whyred.img` built via edk2-msm `-d whyred` in Lima VM
 - [x] Phase 4 — PVE ARM64 rootfs pipeline (`pve/mkrootfs.sh`)
 - [x] Phase 5 — MiToolbox-Native app scaffold with fastboot protocol impl
 - [x] Phase 6 — packaging, guides, SHA256 manifest

@@ -28,9 +28,12 @@ if [ ! -f "$OUT/Image.gz-whyred" ]; then
     ./scripts/kconfig/merge_config.sh -m .config fragment
     make olddefconfig
     make -j"$(nproc)" Image dtbs
+    make -j"$(nproc)" Image.gz || true   # needs CONFIG_KERNEL_GZIP
+    KIMG=arch/arm64/boot/Image
+    [ -f arch/arm64/boot/Image.gz ] && KIMG=arch/arm64/boot/Image.gz
     # whyred: append DTB to kernel (postmarketOS deviceinfo: append_dtb=true)
-    cat arch/arm64/boot/Image.gz \
-        arch/arm64/boot/dts/qcom/sdm636-xiaomi-whyred.dtb > "$OUT/Image.gz-whyred"
+    cat "$KIMG" arch/arm64/boot/dts/qcom/sdm636-xiaomi-whyred.dtb > "$OUT/Image-whyred"
+    cp "$OUT/Image-whyred" "$OUT/Image.gz-whyred"
     cd ..
 fi
 

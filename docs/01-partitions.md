@@ -48,6 +48,12 @@ cmdline             androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x37
 dtb                 qcom/sdm636-xiaomi-whyred (appended to kernel, append_dtb=true)
 ```
 
+> **Endianness gotcha (verified 2026-08-23):** edk2-msm packs its boot image
+> with Ubuntu `abootimg`, which writes header fields LITTLE-endian
+> (pages 2048), unlike AOSP `mkbootimg` (big-endian). whyred ABL accepts
+> both. `bootimg-rs` auto-detects. Real artifact: pagesize 2048,
+> "kernel" = UEFI FD 6333313 B, ramdisk = 1 byte.
+
 ## Safety rules
 
 1. Before any flash, dump actual GPT from the device:
