@@ -75,7 +75,7 @@ echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subs
 
 apt-get update
 echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
-apt-get -y install systemd-sysv locales sudo ifupdown2 lxc lxc-pve \
+apt-get -y install systemd-sysv locales sudo ifupdown2 lxc-pve \
     proxmox-ve postfix chrony open-iscsi
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime || true
 
