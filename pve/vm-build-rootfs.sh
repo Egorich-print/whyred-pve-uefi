@@ -19,7 +19,7 @@ sudo apt-get install -y --no-install-recommends \
 REPO_URL="${REPO_URL:-https://raw.githubusercontent.com/Egorich-print/whyred-pve-uefi/main}"
 
 # ---------------------------------------------------------------- kernel ----
-if [ ! -f "$OUT/Image.gz-whyred" ]; then
+if [ ! -f "$OUT/Image.gz-whyred" ] || [ ! -f linux/modules.order ]; then
     [ -d linux ] || git clone --depth 1 https://github.com/sdm660-mainline/linux.git linux
     cd linux
     curl -fsSL "$REPO_URL/pve/kernel-config.fragment" -o fragment || \
