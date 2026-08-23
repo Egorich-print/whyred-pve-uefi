@@ -70,6 +70,8 @@ EOF2
 # release key is staged by the wrapper below (minbase has no curl)
 [ -s /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg ] || {
     echo "missing proxmox gpg key"; exit 1; }
+# no-subscription only: drop the enterprise repo that pve packages preinstall
+rm -f /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/pve-enterprise.list
 echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subscription" \
     > /etc/apt/sources.list.d/pve.list
 
