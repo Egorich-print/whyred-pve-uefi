@@ -28,6 +28,7 @@ if [ ! -f "$OUT/Image.gz-whyred" ] || [ ! -f linux/modules.order ]; then
     ./scripts/kconfig/merge_config.sh -m .config fragment
     make olddefconfig
     make -j"$(nproc)" Image dtbs
+    make -j"$(nproc)"                    # full build: modules + modules.order
     make -j"$(nproc)" Image.gz || true   # needs CONFIG_KERNEL_GZIP
     KIMG=arch/arm64/boot/Image
     [ -f arch/arm64/boot/Image.gz ] && KIMG=arch/arm64/boot/Image.gz
