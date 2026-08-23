@@ -12,8 +12,10 @@ pub struct DeviceStatus {
     error: Option<String>,
 }
 
-/// SDM660 family fleet: whyred (Redmi Note 5 Pro), lavender (Redmi Note 7)
-const TARGET_SERIALS: [&str; 2] = ["19680/68UA04603", "b5fdde57"];
+/// SDM660 family fleet: whyred (Redmi Note 5 Pro), lavender (Redmi Note 7).
+/// whyred USB serial measured live 2026-08-23; the directive-era
+/// "19680/68UA04603" is an inventory alias, not a fastboot serialno.
+const TARGET_SERIALS: [&str; 3] = ["4699bca9", "19680/68UA04603", "b5fdde57"];
 fn target_for(serial: &Option<String>) -> Option<&'static str> {
     serial.as_deref().and_then(|s| TARGET_SERIALS.iter().copied().find(|t| *t == s))
 }
@@ -32,7 +34,7 @@ fn device_status() -> DeviceStatus {
             let mismatch = (known.is_none() && serial.is_some())
                 .then(|| format!("unknown serial (fleet: {})", TARGET_SERIALS.join(", ")));
             let codename = match known {
-                Some("19680/68UA04603") => Some("whyred"),
+                Some("4699bca9") | Some("19680/68UA04603") => Some("whyred"),
                 Some("b5fdde57") => Some("lavender"),
                 _ => None,
             };

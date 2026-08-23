@@ -1,29 +1,20 @@
 # whyred — eMMC GPT partition map
 
-Sources: LineageOS `device/xiaomi/sdm660-common/BoardConfigCommon.mk` +
-`device/xiaomi/whyred/BoardConfig.mk` (lineage-18.1), edk2-msm
-`configs/devices/whyred.conf`, MIUI fastboot ROM layout. Sizes in bytes.
+> **MEASURED ON LIVE DEVICE 2026-08-23** (`fastboot getvar all`, see
+> exp002-getvar-all.txt and Vivanta docs/hardware/whyred/partitions.md).
+> Estimates below kept for provenance; authoritative = measured table.
 
-| Partition  | Size | Notes |
-|------------|------:|-------|
-| `xbl`, `xbl_config` | ~3.5 MiB / ~64 KiB | Qualcomm bootloader (do not touch) |
-| `sbl1`     | 512 KiB | |
-| `rpm`, `tz`, `hyp`, `keymaster`, `cmnlib`, `cmnlib64`, `devcfg`, `abl` | ≤2 MiB each | firmware; `abl` = Android bootloader that loads our payload |
-| `modem`    | ~80 MiB | baseband |
-| `bluetooth`,`dsp` | ~1–4 MiB | wcn3990 bt, adsp |
-| `persist`  | 32 MiB | sensors calib |
-| `splash`   | ~20 MiB | MIUI logo |
-| `misc`     | 1 MiB | bootloader msgs |
-| `cust`     | ~570 MiB | MIUI carrier/customization |
-| `recovery` | 67108864 (0x04000000) = 64 MiB | |
-| **`boot`** | **67108864 (0x04000000) = 64 MiB** | **target for UEFI payload** |
-| `system`   | 3221225472 = 3072 MiB | |
-| `vendor`   | 838860800 = 800 MiB | |
-| `cache`    | 268435456 = 256 MiB | reuse candidate |
-| `userdata` | remainder (~52 GiB on 64 GB model) | **target for PVE rootfs + LXC storage** |
+Measured highlights: boot 0x4000000 · recovery 0x4000000 · cache 0x10000000 ·
+system 0xC0000000 · **vendor 0x80000000 (2 GiB!)** · cust 0x34000000 (832 MiB) ·
+splash 0x4000000 · persist±bak 0x2000000 · modem 0xC000000 · dsp 0x1000000 ·
+xbl±bak 0x380000 · misc 0x400000 · **userdata 0xCD77F7E00 = 54.94 GiB ext4**.
+No dtbo partition; no A/B slots; eMMC variant "SDM EMMC".
 
-No `dtbo` partition on whyred (A-only MIUI device); no A/B slots.
-No dynamic partitions (`super`) — direct GPT.
+## Historical estimates (pre-survey)
+
+Sources: LineageOS sdm660-common BoardConfigCommon.mk, edk2-msm
+whyred.conf, MIUI fastboot ROM layout. Vendor/cust/splash were
+underestimated here — see measured block above.
 
 ## Boot image parameters (stock/ABL expectations)
 
@@ -56,8 +47,9 @@ dtb                 qcom/sdm636-xiaomi-whyred (appended to kernel, append_dtb=tr
 
 ## Safety rules
 
-1. Before any flash, dump actual GPT from the device:
-   `adb shell ls -la /dev/block/bootdevice/by-name > gpt-listing.txt`
-2. Never write outside `boot`, `cache`, `recovery`, `userdata`.
-3. Keep a stock MIUI fastboot ROM available for unbrick via EDL (test point)
-   — whyred is EDL-recoverable with authorized programmer or MiFlash.
+1. Bootloader is LOCKED (`unlocked:no`, anti-rollback v4) as of 2026-08-23 —
+   Mi Unlock is a hard prerequisite for any flash.
+2. Never send undocumented `oem *` commands to this ABL: `oem device-info`
+   WEDGES the fastboot handler until physical reboot (EXP-002 §incident).
+3. Never write outside `boot`, `cache`, `recovery`, `userdata`.
+4. Keep a stock MIUI fastboot ROM for EDL unbrick insurance.

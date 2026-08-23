@@ -7,7 +7,7 @@
 
 | Item | Why |
 |------|-----|
-| Xiaomi Redmi Note 5 Pro (`whyred`), bootloader **unlocked** | Mi Unlock via official tool (see §1) |
+| Xiaomi Redmi Note 5 Pro (`whyred`), bootloader **unlocked** | ⚠️ unit surveyed 2026-08-23 is LOCKED (`unlocked:no`, anti v4, USB serial `4699bca9`) — Mi Unlock required first (§1) |
 | USB-A ↔ USB-C data cable | fastboot + RNDIS |
 | `platform-tools` (adb/fastboot) on any host | flashing |
 | Optional: UART 3.3V adapter @ BLSP1_UART2 pads (115200 8n1) | bring-up debug |
@@ -19,7 +19,9 @@
    → Developer options → OEM unlocking + Mi Unlock status bound.
 2. Run Xiaomi's **Mi Unlock Tool** on Windows with the same Mi account;
    wait out the binding period (168 h historically).
-3. Verify: `fastboot oem device-info` → `Device unlocked: true`.
+3. Verify lock state via `fastboot getvar unlocked` → must say `yes`.
+   ⚠️ NEVER run `fastboot oem device-info` on this ABL — it wedges the
+   fastboot handler until physical reboot (measured 2026-08-23, EXP-002).
 
 `MiToolbox-Native` (`apps/unlocker/`) shows live unlock state and serial.
 It cannot bypass server-signed authorization — by design.

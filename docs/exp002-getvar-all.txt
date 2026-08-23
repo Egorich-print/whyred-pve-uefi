@@ -1,0 +1,63 @@
+(bootloader) crc:1
+(bootloader) anti:4
+(bootloader) token:VQEBIAEQbe2B4CWYYLkJqKlJFQj+fwMGd2h5cmVkAgQOoF7o
+(bootloader) hw-revision:10000
+(bootloader) unlocked:no
+(bootloader) off-mode-charge:0
+(bootloader) charger-screen-enabled:0
+(bootloader) battery-soc-ok:yes
+(bootloader) battery-voltage:4148
+(bootloader) version-baseband:
+(bootloader) version-bootloader:
+(bootloader) erase-block-size: 0x200
+(bootloader) logical-block-size: 0x200
+(bootloader) variant:SDM EMMC
+(bootloader) partition-type:userdata:ext4
+(bootloader) partition-size:userdata: 0xCD77F7E00
+(bootloader) partition-type:cust:raw
+(bootloader) partition-size:cust: 0x34000000
+(bootloader) partition-type:vendor:raw
+(bootloader) partition-size:vendor: 0x80000000
+(bootloader) partition-type:system:ext4
+(bootloader) partition-size:system: 0xC0000000
+(bootloader) partition-type:cache:ext4
+(bootloader) partition-size:cache: 0x10000000
+(bootloader) partition-type:recovery:raw
+(bootloader) partition-size:recovery: 0x4000000
+(bootloader) partition-type:boot:raw
+(bootloader) partition-size:boot: 0x4000000
+(bootloader) partition-type:rawdump:raw
+(bootloader) partition-size:rawdump: 0x8000000
+(bootloader) partition-type:modem:raw
+(bootloader) partition-size:modem: 0xC000000
+(bootloader) partition-type:logdump:raw
+(bootloader) partition-size:logdump: 0x4000000
+(bootloader) partition-type:persistbak:raw
+(bootloader) partition-size:persistbak: 0x2000000
+(bootloader) partition-type:persist:raw
+(bootloader) partition-size:persist: 0x2000000
+(bootloader) partition-type:splash:raw
+(bootloader) partition-size:splash: 0x4000000
+(bootloader) partition-type:bk2:raw
+(bootloader) partition-size:bk2: 0x2000000
+(bootloader) partition-type:mdtp:raw
+(bootloader) partition-size:mdtp: 0x2000000
+(bootloader) partition-type:bk1:raw
+(bootloader) partition-size:bk1: 0x1800000
+(bootloader) partition-type:dsp:raw
+(bootloader) partition-size:dsp: 0x1000000
+(bootloader) partition-type:modemst2:raw
+(bootloader) partition-size:modemst2: 0x800000
+(bootloader) partition-type:modemst1:raw
+(bootloader) partition-size:modemst1: 0x800000
+(bootloader) partition-type:fsg:raw
+(bootloader) partition-size:fsg: 0x800000
+(bootloader) partition-type:logfs:raw
+(bootloader) partition-size:logfs: 0x800000
+(bootloader) partition-type:devinfo:raw
+(bootloader) partition-size:devinfo: 0x800000
+(bootloader) partition-type:misc:raw
+(bootloader) partition-size:misc: 0x400000
+(bootloader) partition-type:xblbak:raw
+(bootloader) partition-size:xblbak: 0x380000
+(bootloader) partition-type:xbl:raw
