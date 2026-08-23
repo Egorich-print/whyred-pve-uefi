@@ -75,8 +75,13 @@ echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subs
 
 apt-get update
 echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
-apt-get -y install systemd-sysv locales sudo ifupdown2 lxc-pve \
-    proxmox-ve postfix chrony open-iscsi
+# Component-level PVE install: we boot OUR mainline sdm636 kernel, so the
+# proxmox-ve meta (which hard-depends on proxmox-default-kernel and cannot
+# build its initramfs inside a chroot) is intentionally excluded.
+# pve-manager brings Web UI :8006, pve-cluster/ha/storage; lxc-pve brings CTs.
+apt-get -y install systemd-sysv locales sudo ifupdown2 \
+    pve-manager lxc-pve postfix chrony open-iscsi
+dpkg --configure -a || true
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime || true
 
 # serial console on UART (ttyMSM0)
