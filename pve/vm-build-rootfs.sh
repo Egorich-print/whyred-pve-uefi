@@ -100,7 +100,7 @@ EOF2
 chpasswd <<< 'root:whyred'
 EOS
 sudo mkdir -p "$R/etc/apt/trusted.gpg.d"
-curl -fsSL https://download.proxmox.com/debian/proxmox-release-trixie.gpg | \
+curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg | \
     sudo tee "$R/etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg" >/dev/null
 sudo cp /tmp/chroot-setup.sh "$R/root/" && sudo chmod +x "$R/root/chroot-setup.sh"
 sudo chroot "$R" /root/chroot-setup.sh
