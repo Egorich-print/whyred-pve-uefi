@@ -9,7 +9,7 @@
 |---|-----------|--------|
 | 1 | Rust tools compiled & tested on macOS | ✅ 7/7 unit tests green (`tools/`) |
 | 2 | EDK2 payload boot.img integrity | ✅ `boot-whyred.img` built by edk2-msm `-d whyred`, parsed by `bootimg-rs` |
-| 3 | PVE ARM64 rootfs image | ✅ `pve/vm-build-rootfs.sh` → `pve_rootfs_arm64(.sparse).img` |
+| 3 | PVE ARM64 rootfs image | ✅ built: 8 GiB ext4 (PVE 9 trixie arm64, pve-manager+lxc-pve 7.x), sparse 4.76 GB |
 | 4 | GitHub repo, MIT, atomic history | ✅ https://github.com/Egorich-print/whyred-pve-uefi |
 | 5 | Final report + SHA256 | ✅ this file + `dist/SHA256SUMS` |
 
