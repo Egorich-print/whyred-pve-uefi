@@ -50,6 +50,12 @@ fi
 echo -e '#!/bin/sh\nexit 101' | sudo tee "$R/usr/sbin/policy-rc.d" >/dev/null
 sudo chmod +x "$R/usr/sbin/policy-rc.d"
 
+# clean any stale binds from previous runs
+for _ in 1 2 3; do
+    sudo umount -R -l "$R/dev" "$R/proc" "$R/sys" 2>/dev/null || true
+    sudo umount -l "$R" 2>/dev/null || true
+done
+
 # self-bind makes chroot root a real mountpoint -> unshare(2) propagation
 # changes succeed inside (required by initramfs-tools / proxmox-boot hooks)
 sudo mount --bind "$R"     "$R"        2>/dev/null || true
@@ -158,7 +164,10 @@ dd if=/dev/zero of="$IMG" bs=1M count=0 seek=$SIZE_MB status=none
 mkfs.ext4 -q -F -L rootfs -E offset=0 "$IMG"
 TMPM=$(mktemp -d)
 sudo mount "$IMG" "$TMPM"
-sudo rsync -aHAX --exclude=/boot/linux "$R/" "$TMPM/"
+sudo rsync -aHAX \
+    --exclude=/boot/linux --exclude=/dev/* --exclude=/proc/* \
+    --exclude=/sys/* --exclude=/run/* --exclude=/root/chroot-setup.sh \
+    "$R/" "$TMPM/"
 sudo umount "$TMPM"; rmdir "$TMPM"
 e2fsck -fy "$IMG" || true
 
