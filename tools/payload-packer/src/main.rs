@@ -31,6 +31,9 @@ struct Args {
     /// extra cmdline appended after the stock one
     #[arg(long, default_value = "")]
     cmdline_extra: String,
+    /// boot.img header name field
+    #[arg(long, default_value = "whyred-pve-uefi")]
+    name: String,
 }
 
 fn main() -> ExitCode {
@@ -72,7 +75,7 @@ fn run(a: Args) -> Result<String, Box<dyn std::error::Error>> {
         tags_addr: BASE.wrapping_add(TAGS_OFF),
         page_size: PAGESIZE,
         os_version: ((11 & 0x7f) << 11), // os_version 11.0.0
-        name: "whyred-pve-uefi".into(),
+        name: a.name.clone(),
         cmdline,
         extra_cmdline: String::new(),
         id: [0; 8],

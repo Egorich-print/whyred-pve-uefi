@@ -33,8 +33,12 @@ if [ ! -f "$OUT/Image.gz-whyred" ] || [ ! -f linux/modules.order ]; then
     KIMG=arch/arm64/boot/Image
     [ -f arch/arm64/boot/Image.gz ] && KIMG=arch/arm64/boot/Image.gz
     # whyred: append DTB to kernel (postmarketOS deviceinfo: append_dtb=true)
-    cat "$KIMG" arch/arm64/boot/dts/qcom/sdm636-xiaomi-whyred.dtb > "$OUT/Image-whyred"
-    cp "$OUT/Image-whyred" "$OUT/Image.gz-whyred"
+    # family pack: one kernel tree -> per-device Image.gz+DTB
+    for dev in sdm636-xiaomi-whyred sdm660-xiaomi-lavender-tianma; do
+        short="${dev##*-}"
+        name="Image.gz-${short/tianma/lavender}"
+        cat "$KIMG" "arch/arm64/boot/dts/qcom/$dev.dtb" > "$OUT/$name"
+    done
     cd ..
 fi
 

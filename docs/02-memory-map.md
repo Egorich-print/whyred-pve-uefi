@@ -8,7 +8,7 @@ SDM630/632/636/660, torvalds master 2026-08) + `sdm660-xiaomi-common.dtsi` +
 
 | Region | Base | Size | Notes |
 |--------|------|------|-------|
-| Main RAM | **0x80000000** | device: 3/4/6 GiB | kernel load @0x80008000 |
+| Main RAM (bank 0) | **0x40000000** | ~1.5 GiB + high bank @0xA0000000 | kernel phys load ≈0x40008000; corrected per live SDM660 survey (Vivanta EXP-001): kernel code @0x40080000. Earlier "0x80000000" claim was wrong — the 0x85xxxxxx reserved regions sit INSIDE bank0 |
 | qhee_code | 0x85800000 | | TZ-reserved |
 | rmtfs_mem | 0x85e00000 | 1 MiB | modem FS |
 | smem | 0x86000000 | | shared memory |

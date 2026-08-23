@@ -1,7 +1,15 @@
 # whyred-pve-uefi
 
-Proxmox VE (ARM64) on **Xiaomi Redmi Note 5 Pro (`whyred`, SDM636)** booted via
+Proxmox VE (ARM64) on **Xiaomi SDM636/SDM660 phones** booted via
 Tianocore EDK2 UEFI (edk2-msm / Renegade Project port).
+
+| Device | Codename | SoC | S/N |
+|--------|----------|-----|-----|
+| Redmi Note 5 Pro | `whyred` | SDM636 | 19680/68UA04603 |
+| Redmi Note 7 | `lavender` | SDM660 | b5fdde57 |
+
+Shared rootfs image; per-device UEFI payload and kernel boot images.
+`DEVICE=lavender ./flash_all.sh`
 
 ```
 XBL/ABL (Qualcomm) ──▶ UEFI payload in boot partition (edk2-msm, SOC=SDM660)
@@ -28,7 +36,8 @@ XBL/ABL (Qualcomm) ──▶ UEFI payload in boot partition (edk2-msm, SOC=SDM66
 
 - [x] Phase 1 — recon & hardware extraction (`docs/`)
 - [x] Phase 2 — host tooling in Rust (tested on macOS aarch64)
-- [x] Phase 3 — EDK2 pipeline **VERIFIED**: `dist/boot-whyred.img` built via edk2-msm `-d whyred` in Lima VM
+- [x] Phase 3 — EDK2 pipeline **VERIFIED**: `boot-whyred.img` built via upstream `-d whyred`
+- [x] lavender support — new edk2-msm device port authored in-tree, `boot-lavender.img` built first-try
 - [x] Phase 4 — PVE ARM64 rootfs pipeline (`pve/mkrootfs.sh`)
 - [x] Phase 5 — MiToolbox-Native app scaffold with fastboot protocol impl
 - [x] Phase 6 — packaging, guides, SHA256 manifest

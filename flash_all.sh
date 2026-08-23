@@ -6,19 +6,27 @@
 # artifacts in dist/: uefi_whyred.img, pve_rootfs_arm64.sparse.img
 #
 # Usage:
-#   ./flash_all.sh --check     # verify artifacts only, no device writes
-#   ./flash_all.sh             # full sequence
+#   ./flash_all.sh --check              # verify artifacts only, no device writes
+#   DEVICE=lavender ./flash_all.sh      # full sequence for lavender (default whyred)
 set -euo pipefail
 
+DEVICE="${DEVICE:-whyred}"
+case "$DEVICE" in
+    whyred)   UEFI_NAME=uefi_whyred.img;    KERNEL_NAME=boot_pve_whyred.img;   PRODUCT=whyred ;;
+    lavender) UEFI_NAME=uefi_lavender.img;  KERNEL_NAME=boot_pve_lavender.img; PRODUCT=lavender ;;
+    *) echo "unknown device $DEVICE"; exit 1;;
+esac
+
 DIST="$(cd "$(dirname "$0")" && pwd)/dist"
-UEFI="$DIST/uefi_whyred.img"
-ROOTFS="$DIST/pve_rootfs_arm64.sparse.img"
-LOG="${LOG:-flash-whyred.log}"
+UEFI="$DIST/$UEFI_NAME"
+KERNEL="$DIST/$KERNEL_NAME"
+ROOTFS="$DIST/pve_rootfs_arm64.sparse.img"   # shared across SDM660 family
+LOG="${LOG:-flash-$DEVICE.log}"
 
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 
 if [[ "${1:-}" == "--check" ]]; then
-    for f in "$UEFI" "$ROOTFS"; do
+    for f in "$UEFI" "$KERNEL" "$ROOTFS"; do
         [ -f "$f" ] || { echo "missing: $f"; exit 1; }
         echo "OK  $(basename "$f")  sha256=$(sha "$f")"
     done

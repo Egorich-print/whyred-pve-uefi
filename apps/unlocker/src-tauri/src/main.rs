@@ -12,7 +12,11 @@ pub struct DeviceStatus {
     error: Option<String>,
 }
 
-const TARGET_SERIAL: &str = "19680/68UA04603";
+/// SDM660 family fleet: whyred (Redmi Note 5 Pro), lavender (Redmi Note 7)
+const TARGET_SERIALS: [&str; 2] = ["19680/68UA04603", "b5fdde57"];
+fn target_for(serial: &Option<String>) -> Option<&'static str> {
+    serial.as_deref().and_then(|s| TARGET_SERIALS.iter().copied().find(|t| *t == s))
+}
 
 #[tauri::command]
 fn device_status() -> DeviceStatus {
@@ -24,12 +28,17 @@ fn device_status() -> DeviceStatus {
                 .getvar("unlocked")
                 .map(|v| v == "yes" || v == "true")
                 .unwrap_or(false);
-            let matches_serial = serial.as_deref() == Some(TARGET_SERIAL);
-            let mismatch = (!matches_serial && serial.is_some())
-                .then(|| format!("serial mismatch (expected {TARGET_SERIAL})"));
+            let known = target_for(&serial);
+            let mismatch = (known.is_none() && serial.is_some())
+                .then(|| format!("unknown serial (fleet: {})", TARGET_SERIALS.join(", ")));
+            let codename = match known {
+                Some("19680/68UA04603") => Some("whyred"),
+                Some("b5fdde57") => Some("lavender"),
+                _ => None,
+            };
             DeviceStatus {
                 connected: true,
-                serial,
+                serial: serial.map(|s| format!("{s} ({})", codename.unwrap_or("?"))),
                 product,
                 unlocked,
                 error: mismatch,

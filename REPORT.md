@@ -36,6 +36,18 @@
 | `pve_rootfs_arm64.sparse.img` | Proxmox VE arm64 rootfs → `fastboot flash userdata` |
 | `Image.gz-whyred` | raw kernel for custom packing |
 
+## lavender extension (2026-08-23, second mission)
+
+- edk2-msm had NO `lavender.conf` — authored in-tree port:
+  device conf + `lavender.dsc` (tianma 1080×2340, GUID 827309bb…a11a4)
+  + fdf.inc + mainline tianma DTB → **boot-lavender.img first-try build**
+- PVE kernel for lavender: same tree, DTB `sdm660-xiaomi-lavender-tianma`
+- Rootfs stays shared across the family (identical SDM660 platform)
+- MiToolbox fleet table: both serials; codename shown per device
+- DRAM base corrected to 0x40000000 for BOTH devices (Vivanta EXP-001
+  live evidence); whyred memory-map doc fixed
+- Open EXP-001 items A-003/R5/R7 closed by boot.img-path evidence
+
 ## Next steps (human operator)
 
 1. Mi Unlock via official tool (FLASHING_GUIDE.md §1)
