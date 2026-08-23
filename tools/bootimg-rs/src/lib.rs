@@ -59,11 +59,24 @@ fn err<T>(msg: impl Into<String>) -> Result<T> {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-fn be32(b: &[u8], off: usize) -> u32 {
-    u32::from_be_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]])
+#[derive(Clone, Copy, PartialEq)]
+enum Endian {
+    Be,
+    Le,
 }
-fn be64(b: &[u8], off: usize) -> u64 {
-    u64::from_be_bytes([
+
+fn rd32(b: &[u8], off: usize, e: Endian) -> u32 {
+    let w = [b[off], b[off + 1], b[off + 2], b[off + 3]];
+    match e {
+        Endian::Be => u32::from_be_bytes(w),
+        Endian::Le => u32::from_le_bytes(w),
+    }
+}
+fn be32(b: &[u8], off: usize) -> u32 {
+    rd32(b, off, Endian::Be)
+}
+fn rd64(b: &[u8], off: usize, e: Endian) -> u64 {
+    let w = [
         b[off],
         b[off + 1],
         b[off + 2],
@@ -72,7 +85,11 @@ fn be64(b: &[u8], off: usize) -> u64 {
         b[off + 5],
         b[off + 6],
         b[off + 7],
-    ])
+    ];
+    match e {
+        Endian::Be => u64::from_be_bytes(w),
+        Endian::Le => u64::from_le_bytes(w),
+    }
 }
 
 fn cstr(b: &[u8]) -> String {
@@ -93,15 +110,27 @@ impl BootImage {
         if buf.len() < 8 || &buf[..8] != MAGIC {
             return err("not an Android boot image (bad magic)");
         }
-        let candidate_v3 = be32(&buf, 20) == V3_HDR as u32 || be32(&buf, 20) == V4_HDR as u32;
-        if candidate_v3 && be32(&buf, 24) >= 3 && be32(&buf, 24) <= 4 {
+        let v34 = |e| {
+            let hs = rd32(&buf, 20, e);
+            let ver = rd32(&buf, 24, e);
+            (hs == V3_HDR as u32 || hs == V4_HDR as u32) && (3..=4).contains(&ver)
+        };
+        if v34(Endian::Be) || v34(Endian::Le) {
             return Self::parse_v34(buf);
         }
         Self::parse_v02(buf)
     }
 
     fn parse_v02(buf: Vec<u8>) -> Result<Self> {
-        let hdr_ver_field = be32(&buf, 40);
+        // AOSP mkbootimg writes big-endian; abootimg (used by edk2-msm/Renegade)
+        // writes little-endian. Decide by plausibility of kernel_size.
+        let e = {
+            let be_k = rd32(&buf, 8, Endian::Be);
+            if be_k as usize <= buf.len().saturating_sub(512) { Endian::Be } else { Endian::Le }
+        };
+        let r32 = |o: usize| rd32(&buf, o, e);
+        let r64 = |o: usize| rd64(&buf, o, e);
+        let hdr_ver_field = r32(40);
         let version = match hdr_ver_field {
             0 | 1 | 2 => hdr_ver_field, // could still be legacy dt_size!=0; treated as v0 payload below
             _ => 0,                     // legacy: field is dt_size
@@ -114,15 +143,16 @@ impl BootImage {
         if buf.len() < need {
             return err(format!("truncated: {} < {need}", buf.len()));
         }
-        let page = be32(&buf, 36) as usize;
-        if !(512..=65536).contains(&page) || !page.is_power_of_two() {
-            return err(format!("bad page size {}", be32(&buf, 36)));
+        let page = r32( 36) as usize;
+        // AOSP allows any u32; renegade/edk2-msm ships 512 KiB pages
+        if !page.is_power_of_two() || page < 512 || page > (1 << 30) {
+            return err(format!("bad page size {page}"));
         }
         // Legacy images may store a real dt blob size in the version slot.
         let (dtb_size_hdr, dtb_blob) = if version == 0 && hdr_ver_field > 2 {
             (hdr_ver_field, true)
         } else if version == 2 {
-            (be32(&buf, V1_HDR + 12), false)
+            (r32( V1_HDR + 12), false)
         } else {
             (0, false)
         };
@@ -138,48 +168,48 @@ impl BootImage {
             Ok(d)
         };
 
-        let kernel_size = be32(&buf, 8);
+        let kernel_size = r32( 8);
         let kernel = take(kernel_size)?;
-        let ramdisk_size = be32(&buf, 16);
+        let ramdisk_size = r32( 16);
         let ramdisk = if ramdisk_size > 0 {
             Some(take(ramdisk_size)?)
         } else {
             None
         };
-        let second_size = be32(&buf, 24);
+        let second_size = r32( 24);
         let second = if second_size > 0 {
             Some(take(second_size)?)
         } else {
             None
         };
-        let recovery_dtbo_size = if version >= 1 { be32(&buf, V0_HDR) } else { 0 };
+        let recovery_dtbo_size = if version >= 1 { r32( V0_HDR) } else { 0 };
         let recovery_dtbo = if recovery_dtbo_size > 0 {
             Some(take(recovery_dtbo_size)?)
         } else {
             None
         };
-        let dtb_size = if dtb_blob { dtb_size_hdr } else if version == 2 { be32(&buf, V1_HDR) } else { 0 };
+        let dtb_size = if dtb_blob { dtb_size_hdr } else if version == 2 { r32( V1_HDR) } else { 0 };
         let dtb = if dtb_size > 0 { Some(take(dtb_size)?) } else { None };
 
         Ok(BootImage {
             version,
             kernel_size,
-            kernel_addr: be32(&buf, 12),
+            kernel_addr: r32( 12),
             ramdisk_size,
-            ramdisk_addr: be32(&buf, 20),
+            ramdisk_addr: r32( 20),
             second_size,
-            second_addr: be32(&buf, 28),
-            tags_addr: be32(&buf, 32),
+            second_addr: r32( 28),
+            tags_addr: r32( 32),
             page_size: page as u32,
-            os_version: be32(&buf, 44),
+            os_version: r32( 44),
             name: cstr(&buf[48..64]),
             cmdline: cstr(&buf[64..576]),
             extra_cmdline: cstr(&buf[608..1632]),
-            id: (0..8).map(|i| be32(&buf, 576 + i * 4)).collect::<Vec<_>>().try_into().unwrap(),
+            id: (0..8).map(|i| r32( 576 + i * 4)).collect::<Vec<_>>().try_into().unwrap(),
             recovery_dtbo_size,
-            recovery_dtbo_offset: if version >= 1 { be64(&buf, V0_HDR + 4) } else { 0 },
+            recovery_dtbo_offset: if version >= 1 { r64( V0_HDR + 4) } else { 0 },
             dtb_size,
-            dtb_addr: if version == 2 { be64(&buf, V1_HDR + 4) } else { 0 },
+            dtb_addr: if version == 2 { r64( V1_HDR + 4) } else { 0 },
             signature_size: 0,
             kernel,
             ramdisk,
@@ -190,7 +220,7 @@ impl BootImage {
     }
 
     fn parse_v34(buf: Vec<u8>) -> Result<Self> {
-        let version = be32(&buf, 24);
+        let version = rd32(&buf, 24, if rd32(&buf, 24, Endian::Be) >= 3 { Endian::Be } else { Endian::Le });
         let need = if version == 3 { V3_HDR } else { V4_HDR };
         if buf.len() < need {
             return err("truncated v3/v4 header");
