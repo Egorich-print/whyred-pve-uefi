@@ -77,6 +77,10 @@ echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subs
 
 apt-get update
 echo "postfix postfix/main_mailer_type select No configuration" | debconf-set-selections
+# pve-manager -> proxmox-default-kernel; skip its initramfs build (chroot
+# cannot unshare mount propagation). We never boot the PVE kernel anyway.
+mkdir -p /etc/initramfs-tools
+echo UPDATE_INITRAMFS=no > /etc/initramfs-tools/update-initramfs.conf
 # Component-level PVE install: we boot OUR mainline sdm636 kernel, so the
 # proxmox-ve meta (which hard-depends on proxmox-default-kernel and cannot
 # build its initramfs inside a chroot) is intentionally excluded.
