@@ -49,6 +49,9 @@ fi
 echo -e '#!/bin/sh\nexit 101' | sudo tee "$R/usr/sbin/policy-rc.d" >/dev/null
 sudo chmod +x "$R/usr/sbin/policy-rc.d"
 
+# self-bind makes chroot root a real mountpoint -> unshare(2) propagation
+# changes succeed inside (required by initramfs-tools / proxmox-boot hooks)
+sudo mount --bind "$R"     "$R"        2>/dev/null || true
 sudo mount --bind /dev     "$R/dev"     2>/dev/null || true
 sudo mount --bind /proc    "$R/proc"    2>/dev/null || true
 sudo mount --bind /sys     "$R/sys"     2>/dev/null || true
@@ -145,6 +148,7 @@ tmpfs               /tmp   tmpfs defaults,size=512m                 0 0
 EOF
 
 sudo umount -R "$R/dev" "$R/proc" "$R/sys" 2>/dev/null || true
+sudo umount "$R" 2>/dev/null || true
 
 # ------------------------------------------------------------- image out ----
 IMG="$OUT/pve_rootfs_arm64.img"; SIZE_MB=8192
