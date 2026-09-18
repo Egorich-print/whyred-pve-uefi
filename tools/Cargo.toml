@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["bootimg-rs", "sparse-rs", "payload-packer"]
+members = ["bootimg-rs", "sparse-rs", "payload-packer", "sahara-rs"]
 
 [workspace.package]
 edition = "2024"

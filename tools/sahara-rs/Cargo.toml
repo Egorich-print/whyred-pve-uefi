@@ -1,0 +1,11 @@
+[package]
+name = "sahara-rs"
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+description = "Minimal Qualcomm Sahara v2 + Firehose client for EDL 9008 on SDM660"
+
+[dependencies]
+rusb = "0.9"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }

@@ -31,6 +31,8 @@ XBL/ABL (Qualcomm) ──▶ UEFI payload in boot partition (edk2-msm, SOC=SDM66
 | `scripts/`             | One-command builders, dist assembly, SHA256 manifest |
 | `dist/`                | Final artifacts + SHA256SUMS |
 | `docs/`                | Partition map, memory map, research notes |
+| `docs/adr/`            | Architecture Decision Records (ADR-001…006) |
+| `STATUS.md`            | Текущее состояние проекта и блокеры |
 
 ## Status
 
