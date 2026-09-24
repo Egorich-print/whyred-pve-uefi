@@ -14,7 +14,7 @@ export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends \
     debootstrap e2fsprogs git build-essential bc bison flex libssl-dev \
-    libelf-dev kmod cpio rsync curl ca-certificates arch-test sudo
+    libelf-dev kmod cpio rsync curl ca-certificates arch-test sudo gnupg
 
 REPO_URL="${REPO_URL:-https://raw.githubusercontent.com/Egorich-print/whyred-pve-uefi/main}"
 
@@ -22,8 +22,12 @@ REPO_URL="${REPO_URL:-https://raw.githubusercontent.com/Egorich-print/whyred-pve
 if [ ! -f "$OUT/Image.gz-whyred" ] || [ ! -f linux/modules.order ]; then
     [ -d linux ] || git clone --depth 1 https://github.com/sdm660-mainline/linux.git linux
     cd linux
-    curl -fsSL "$REPO_URL/pve/kernel-config.fragment" -o fragment || \
-        cp /tmp/kernel-config.fragment fragment   # synced from host as fallback
+    echo "[vm] linux commit: $(git rev-parse --short HEAD)"
+    if [ -s /tmp/kernel-config.fragment ]; then
+        cp /tmp/kernel-config.fragment fragment      # synced from the repo
+    else
+        curl -fsSL "$REPO_URL/pve/kernel-config.fragment" -o fragment
+    fi
     make defconfig
     ./scripts/kconfig/merge_config.sh -m .config fragment
     make olddefconfig
@@ -62,10 +66,10 @@ done
 
 # self-bind makes chroot root a real mountpoint -> unshare(2) propagation
 # changes succeed inside (required by initramfs-tools / proxmox-boot hooks)
-sudo mount --bind "$R"     "$R"        2>/dev/null || true
-sudo mount --bind /dev     "$R/dev"     2>/dev/null || true
-sudo mount --bind /proc    "$R/proc"    2>/dev/null || true
-sudo mount --bind /sys     "$R/sys"     2>/dev/null || true
+sudo mount --bind "$R"     "$R"
+sudo mount --bind /dev     "$R/dev"
+sudo mount --bind /proc    "$R/proc"
+sudo mount --bind /sys     "$R/sys"
 
 cat > /tmp/chroot-setup.sh <<'EOS'
 #!/bin/bash
@@ -81,12 +85,11 @@ cat > /etc/hosts <<EOF2
 EOF2
 
 # official Proxmox VE arm64 repository (launched 2026-08-05)
-# release key is staged by the wrapper below (minbase has no curl)
-[ -s /etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg ] || {
-    echo "missing proxmox gpg key"; exit 1; }
-# no-subscription only: drop the enterprise repo that pve packages preinstall
+# key is staged + fingerprint-checked by the wrapper (minbase has no curl)
+KEY=/usr/share/keyrings/proxmox-archive-keyring.gpg
+[ -s "$KEY" ] || { echo "missing $KEY"; exit 1; }
 rm -f /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/pve-enterprise.list
-echo "deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subscription" \
+echo "deb [arch=arm64 signed-by=$KEY] http://download.proxmox.com/debian/pve trixie pve-no-subscription" \
     > /etc/apt/sources.list.d/pve.list
 
 apt-get update
@@ -101,8 +104,13 @@ echo UPDATE_INITRAMFS=no > /etc/initramfs-tools/update-initramfs.conf
 # pve-manager brings Web UI :8006, pve-cluster/ha/storage; lxc-pve brings CTs.
 apt-get -y install systemd-sysv locales sudo ifupdown2 \
     pve-manager lxc-pve postfix chrony open-iscsi
-dpkg --configure -a || true
-ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime || true
+dpkg --configure -a
+if dpkg -l proxmox-default-kernel 2>/dev/null | grep -q '^ii'; then
+    echo "proxmox-default-kernel must not be installed (we boot our own kernel)"; exit 1
+fi
+echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
+locale-gen
+ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
 
 # serial console on UART (ttyMSM0)
 mkdir -p /etc/systemd/system/serial-getty@ttyMSM0.service.d
@@ -121,14 +129,21 @@ cat > /etc/modules-load.d/g_ether.conf <<EOF2
 g_ether
 EOF2
 
-# root password (operator must change on first login)
-chpasswd <<< 'root:whyred'
+# no baked credential: root starts locked, password is set on first login
+# from the serial console (serial-getty@ttyMSM0 is enabled above)
+passwd -l root
 EOS
-sudo mkdir -p "$R/etc/apt/trusted.gpg.d"
-curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg | \
-    sudo tee "$R/etc/apt/trusted.gpg.d/proxmox-release-trixie.gpg" >/dev/null
+: "${PROXMOX_KEY_FPR:?set PROXMOX_KEY_FPR to the release-key fingerprint (wiki.proxmox.com)}"
+KEY_TMP=$(mktemp)
+curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -o "$KEY_TMP"
+GOT_FPR=$(gpg --show-keys --with-colons "$KEY_TMP" | awk -F: '/^fpr:/ {print $10; exit}')
+[ "$GOT_FPR" = "$PROXMOX_KEY_FPR" ] || {
+    echo "proxmox key fingerprint mismatch: got $GOT_FPR"; exit 1; }
+sudo mkdir -p "$R/usr/share/keyrings"
+sudo install -m644 "$KEY_TMP" "$R/usr/share/keyrings/proxmox-archive-keyring.gpg"
+rm -f "$KEY_TMP"
 sudo cp /tmp/chroot-setup.sh "$R/root/" && sudo chmod +x "$R/root/chroot-setup.sh"
-sudo chroot "$R" /root/chroot-setup.sh
+sudo chroot "$R" /usr/bin/env PVE_HOSTNAME="${PVE_HOSTNAME:-pve-arm64}" /root/chroot-setup.sh
 
 # kernel modules into rootfs
 cd linux
@@ -162,8 +177,8 @@ sudo umount -R "$R/dev" "$R/proc" "$R/sys" 2>/dev/null || true
 sudo umount "$R" 2>/dev/null || true
 
 # ------------------------------------------------------------- image out ----
-IMG="$OUT/pve_rootfs_arm64.img"; SIZE_MB=8192
-rm -f "$IMG"
+IMG="$OUT/pve_rootfs_arm64.img"; SIZE_MB="${SIZE_MB:-8192}"
+rm -f "$IMG"; rm -f "$OUT/.rootfs.complete"
 dd if=/dev/zero of="$IMG" bs=1M count=0 seek=$SIZE_MB status=none
 mkfs.ext4 -q -F -L rootfs -E offset=0 "$IMG"
 TMPM=$(mktemp -d)
@@ -173,7 +188,8 @@ sudo rsync -aHAX \
     --exclude=/sys/* --exclude=/run/* --exclude=/root/chroot-setup.sh \
     "$R/" "$TMPM/"
 sudo umount "$TMPM"; rmdir "$TMPM"
-e2fsck -fy "$IMG" || true
+e2fsck -fy "$IMG" || [ $? -eq 1 ] || { echo "e2fsck failed"; exit 1; }
+touch "$OUT/.rootfs.complete"
 
 echo "=== DONE ==="
 ls -la "$OUT"

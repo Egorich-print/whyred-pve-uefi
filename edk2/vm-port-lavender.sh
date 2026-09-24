@@ -57,11 +57,20 @@ grep -q 'FdtBlob_compat/lavender.dtb' Platform/Xiaomi/sdm660/lavender.fdf.inc ||
 
 # ---- 4. DTB: mainline tianma variant from our kernel build ----
 LINUX="$HOME/rootfs-build/linux"
-[ -f "$LINUX/arch/arm64/boot/dts/qcom/sdm660-xiaomi-lavender-tianma.dtb" ] || {
-    cd "$LINUX" && make -j"$(nproc)" dtbs && cd -
+[ -d "$LINUX" ] || {
+    echo "[vm] $LINUX missing — run pve/vm-build-rootfs.sh first (kernel tree carries the DTB)" >&2
+    exit 1
 }
+if [ ! -f "$LINUX/arch/arm64/boot/dts/qcom/sdm660-xiaomi-lavender-tianma.dtb" ]; then
+    ( cd "$LINUX" && make -j"$(nproc)" dtbs )
+fi
 cp "$LINUX/arch/arm64/boot/dts/qcom/sdm660-xiaomi-lavender-tianma.dtb" \
    Platform/Xiaomi/sdm660/FdtBlob_compat/lavender.dtb
+
+if [ "${PORT_ONLY:-0}" = "1" ]; then
+    echo "[vm] lavender port applied (PORT_ONLY=1, skipping build)"
+    exit 0
+fi
 
 # ---- 5. build ----
 mkdir -p "$HOME/edk2-out"
