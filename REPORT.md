@@ -1,15 +1,19 @@
 # MISSION REPORT — whyred-pve-uefi
 
-**Date:** 2026-08-23 · **Operator:** Egorich-print · **Device:** Redmi Note 5 Pro (`whyred`, S/N 19680/68UA04603)
+> **Historical snapshot (2026-08-23).** Numbers below describe that day; the
+> current state lives in `STATUS.md`. Claims about artifacts "built ✅" mean
+> they existed then — large images are not kept in git and must be rebuilt.
+
+**Date:** 2026-08-23 · **Operator:** Egorich-print · **Device:** Redmi Note 5 Pro (`whyred`; serial redacted)
 **Boundary honored:** pipeline stopped at `dist/` artifacts — zero `fastboot` writes executed.
 
 ## Exit criteria status
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| 1 | Rust tools compiled & tested on macOS | ✅ 7/7 unit tests green (`tools/`) |
-| 2 | EDK2 payload boot.img integrity | ✅ `boot-whyred.img` built by edk2-msm `-d whyred`, parsed by `bootimg-rs` |
-| 3 | PVE ARM64 rootfs image | ✅ built: 8 GiB ext4 (PVE 9 trixie arm64, pve-manager+lxc-pve 7.x), sparse 4.76 GB |
+| 1 | Rust tools compiled & tested on macOS | ✅ 6/6 unit tests green (`tools/`) on that day |
+| 2 | EDK2 payload boot.img integrity | ✅ built by edk2-msm `-d whyred`, parsed by `bootimg-rs` (file not tracked in git) |
+| 3 | PVE ARM64 rootfs image | ✅ built: 8 GiB ext4 (official PVE arm64 trixie, pve-manager+lxc-pve), sparse-converted (size not retained) |
 | 4 | GitHub repo, MIT, atomic history | ✅ https://github.com/Egorich-print/whyred-pve-uefi |
 | 5 | Final report + SHA256 | ✅ this file + `dist/SHA256SUMS` |
 

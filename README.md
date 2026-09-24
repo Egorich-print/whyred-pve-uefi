@@ -3,63 +3,67 @@
 Proxmox VE (ARM64) on **Xiaomi SDM636/SDM660 phones** booted via
 Tianocore EDK2 UEFI (edk2-msm / Renegade Project port).
 
-| Device | Codename | SoC | S/N |
-|--------|----------|-----|-----|
-| Redmi Note 5 Pro | `whyred` | SDM636 | 19680/68UA04603 |
-| Redmi Note 7 | `lavender` | SDM660 | b5fdde57 |
+| Device | Codename | SoC | State |
+|--------|----------|-----|-------|
+| Redmi Note 5 Pro | `whyred` | SDM636 | bootloader locked (2026-08-23) |
+| Redmi Note 7 | `lavender` | SDM660 | unlocked, stuck at splash, reachable via EDL test points |
 
 Shared rootfs image; per-device UEFI payload and kernel boot images.
-`DEVICE=lavender ./flash_all.sh`
+Device serials are deliberately not published — see STATUS.md.
 
 ```
-XBL/ABL (Qualcomm) ──▶ UEFI payload in boot partition (edk2-msm, SOC=SDM660)
-                       │
-                       ├─▶ Linux mainline (sdm660-mainline) + PVE rootfs on userdata
-                       └─▶ LXC containers (PVE ARM64 community port)
+XBL/ABL (Qualcomm) ──▶ Plan B: mainline Linux kernel (sdm660-mainline) + PVE rootfs
+                       └▶ Plan A: UEFI payload (edk2-msm, SOC=SDM660) → extlinux → Linux
+                                              └─▶ LXC containers (official Proxmox VE arm64)
 ```
 
 ## Layout
 
 | Path        | What |
 |-------------|------|
-| `tools/bootimg-rs`     | Android boot.img v0–v3 parse/unpack/pack (Rust 2024, macOS-native) |
+| `tools/bootimg-rs`     | Android boot.img v0–v4 parse/unpack/pack (Rust 2024, macOS-native) |
 | `tools/sparse-rs`      | Android sparse image ⇄ raw converter (`simg2img` / `img2simg`) |
 | `tools/payload-packer` | Wrap UEFI FD / kernel payloads into flashable boot.img |
-| `edk2/`                | Containerized build pipeline for `edk2-porting/edk2-msm -d whyred` |
-| `pve/`                 | Debian 12 ARM64 + Proxmox VE ARM64 rootfs generator + kernel fragment |
-| `apps/unlocker/`       | MiToolbox-Native: Tauri v2 + Svelte fastboot/USB toolbox (rusb) |
-| `scripts/`             | One-command builders, dist assembly, SHA256 manifest |
-| `dist/`                | Final artifacts + SHA256SUMS |
-| `docs/`                | Partition map, memory map, research notes |
-| `docs/adr/`            | Architecture Decision Records (ADR-001…006) |
-| `STATUS.md`            | Текущее состояние проекта и блокеры |
+| `tools/sahara-rs`      | Qualcomm Sahara v2 loader upload over EDL (unit-tested state machine) |
+| `tools/edl-recon.py`   | Same upload via pyusb (the path that works on this macOS host) |
+| `tools/analyze-devinfo.py` | Read-only survey of a devinfo dump |
+| `edk2/`                | Lima VM pipeline for `edk2-msm -d <device>` + the lavender port |
+| `pve/`                 | Debian trixie ARM64 + official Proxmox VE arm64 rootfs generator |
+| `apps/unlocker/`       | MiToolbox-Native: Tauri v2 fastboot toolbox (boot/cache/recovery only) |
+| `scripts/`             | Device-parameterized builders, dist manifest |
+| `dist/`                | Build outputs + SHA256SUMS (kernels tracked, large images not) |
+| `docs/`                | Partition map, memory map, unlock research, `docs/adr/` |
+| `STATUS.md`            | **Single source of truth** for status and blockers |
 
-## Status
-
-- [x] Phase 1 — recon & hardware extraction (`docs/`)
-- [x] Phase 2 — host tooling in Rust (tested on macOS aarch64)
-- [x] Phase 3 — EDK2 pipeline **VERIFIED**: `boot-whyred.img` built via upstream `-d whyred`
-- [x] lavender support — new edk2-msm device port authored in-tree, `boot-lavender.img` built first-try
-- [x] Phase 4 — PVE ARM64 rootfs pipeline (`pve/mkrootfs.sh`)
-- [x] Phase 5 — MiToolbox-Native app scaffold with fastboot protocol impl
-- [x] Phase 6 — packaging, guides, SHA256 manifest
-
-**Nothing here touches the device.** All flashing steps are documented for the
-human operator in `FLASHING_GUIDE.md`; the agent stops before `fastboot flash`.
-
-## Build everything (host, no device needed)
+## Build (host, no device needed)
 
 ```sh
-scripts/build-all.sh     # rust tools + edk2 payload + rootfs image → dist/
+export PROXMOX_KEY_FPR=<release-key fingerprint from wiki.proxmox.com>
+scripts/build-edk2.sh   pve-builder whyred      # → dist/uefi_whyred.img
+scripts/build-rootfs.sh pve-builder whyred      # kernel + rootfs + boot_pve + sparse
+scripts/make-dist.sh                            # regenerate dist/SHA256SUMS
+scripts/check.sh                                # fmt/clippy/tests + script syntax
 ```
 
-Requires: Rust 1.98+, podman (or Lima), ~10 GB disk. See `ARCHITECTURE.md`.
+Requires Rust 1.98+, Lima (`limactl`), and ~40 GB free for the rootfs build.
+Artifacts are reproducible, not committed: only `Image.gz-*` and
+`dist/SHA256SUMS` are tracked.
 
-## Device reference
+## Flash (manual, device owner only)
 
-- Codename: `whyred` · SoC: SDM636 · S/N: 19680/68UA04603
-- Boot chain: Qualcomm XBL → ABL → EDK2 UEFI payload (`boot` partition)
-- Mainline status: official postmarketOS device `xiaomi-whyred`,
-  DT `sdm636-xiaomi-whyred.dts` (sdm660-mainline/linux)
+```sh
+./flash_all.sh --check                # artifact + manifest verification
+DEVICE=whyred ./flash_all.sh          # Plan B: kernel + rootfs
+PLAN=uefi  DEVICE=whyred ./flash_all.sh   # Plan A, after Plan B is proven
+```
+
+The script verifies `getvar product`/`unlocked`/serial, re-checks the
+manifest before the first write, and asks for a typed confirmation. It never
+erases `misc` and never writes `devinfo`. See `FLASHING_GUIDE.md`.
+
+## Decisions
+
+`docs/adr/` — dual boot path, lavender edk2-msm port, official Proxmox arm64,
+shared SDM660 rootfs, bootimg endianness, EDL/devinfo unlock route.
 
 License: MIT.

@@ -7,7 +7,7 @@
 Measured highlights: boot 0x4000000 · recovery 0x4000000 · cache 0x10000000 ·
 system 0xC0000000 · **vendor 0x80000000 (2 GiB!)** · cust 0x34000000 (832 MiB) ·
 splash 0x4000000 · persist±bak 0x2000000 · modem 0xC000000 · dsp 0x1000000 ·
-xbl±bak 0x380000 · misc 0x400000 · **userdata 0xCD77F7E00 = 54.94 GiB ext4**.
+xbl±bak 0x380000 · misc 0x400000 · **userdata 0xCD77F7E00 = 55,155,064,320 B (51.37 GiB / 55.16 GB) ext4**.
 No dtbo partition; no A/B slots; eMMC variant "SDM EMMC".
 
 ## Historical estimates (pre-survey)
@@ -51,5 +51,9 @@ dtb                 qcom/sdm636-xiaomi-whyred (appended to kernel, append_dtb=tr
    Mi Unlock is a hard prerequisite for any flash.
 2. Never send undocumented `oem *` commands to this ABL: `oem device-info`
    WEDGES the fastboot handler until physical reboot (EXP-002 §incident).
-3. Never write outside `boot`, `cache`, `recovery`, `userdata`.
-4. Keep a stock MIUI fastboot ROM for EDL unbrick insurance.
+3. Never write outside `boot`, `cache`, `recovery`, `userdata`. The single
+   exception is `devinfo` during the unlock procedure (ADR-006) — and only
+   with a verified backup in `backups/` plus a partition-aware write.
+4. `misc` is never erased by project tooling: stale BCB state is inspected
+   read-only, and any change requires the same backup discipline.
+5. Keep a stock MIUI fastboot ROM for EDL unbrick insurance.

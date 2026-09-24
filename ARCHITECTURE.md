@@ -24,18 +24,23 @@ UEFI is the experimental layer. Both consume the SAME rootfs image.
 
 | Path | Role |
 |------|------|
-| `tools/bootimg-rs` | lib+CLI: Android boot.img v0–v3 codec. BE headers, page-aligned sections |
+| `tools/bootimg-rs` | lib+CLI: Android boot.img codec — parse v0–v4, pack v0–v2; BE/LE headers auto-detected structurally, page-aligned sections |
 | `tools/sparse-rs` | libsparse chunk codec; used to sparse-ify the 8GiB rootfs for fastboot |
-| `tools/payload-packer` | FD/kernel → whyred boot.img (v1, pagesize 4096, base 0x0) |
+| `tools/payload-packer` | FD/kernel → boot.img (v1, pagesize 4096, base 0x0, ≤64 MiB) |
+| `tools/sahara-rs` | EDL Sahara v2 loader upload (rusb); unit-tested state machine |
+| `tools/edl-recon.py` | the same upload over pyusb, for hosts where rusb does not enumerate QUSB__BULK |
 | `edk2/vm-build-edk2.sh` | runs in Lima VM: edk2-msm CI deps + `./build.sh --device whyred --boot` |
 | `pve/vm-build-rootfs.sh` | debootstrap trixie + official proxmox arm64 repo + kernel build + ext4 image |
 | `pve/kernel-config.fragment` | container/PVE kconfig on top of defconfig |
 | `apps/unlocker/` | Tauri v2 + Svelte-less minimal UI; `mibox-core` = fastboot protocol over rusb |
-| `scripts/build-{edk2,rootfs}.sh` | host wrappers: sync script → run in VM → pull artifacts → pack |
+| `scripts/build-{edk2,rootfs}.sh` | host wrappers: `DEVICE=whyred\|lavender` → run in VM → pull artifacts → pack |
+| `scripts/make-dist.sh` | fail-closed `dist/SHA256SUMS` regeneration (atomic write) |
+| `scripts/check.sh` | one command: fmt/clippy/tests + shell/python syntax |
 
 ## Memory & hardware facts (verified against sources)
 
-- DRAM @ 0x80000000; kernel phys load 0x80008000 (`base=0x0, offset=0x8000`)
+- DRAM @ **0x40000000** (bank0 1.5 GiB, bank1 @0xA0000000); kernel phys load
+  0x40008000 (`base=0x0, offset=0x8000`) — the earlier 0x80000000 figure was wrong
 - GIC 0x17a00000 · UART console blsp1_uart2 **0xc170000** · eMMC sdhc_1 0xc0c4000
 - USB3 DWC3 0xa800000 (`androidboot.usbcontroller=a800000.dwc3`)
 - XBL-inited framebuffer 1080×2160 stride 4320 handed to simple-framebuffer

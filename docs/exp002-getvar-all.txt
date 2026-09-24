@@ -1,6 +1,6 @@
 (bootloader) crc:1
 (bootloader) anti:4
-(bootloader) token:VQEBIAEQbe2B4CWYYLkJqKlJFQj+fwMGd2h5cmVkAgQOoF7o
+(bootloader) token:[REDACTED device-bound Mi Unlock token, first 8 = VQEBIAEQ, full value kept out of git]
 (bootloader) hw-revision:10000
 (bootloader) unlocked:no
 (bootloader) off-mode-charge:0

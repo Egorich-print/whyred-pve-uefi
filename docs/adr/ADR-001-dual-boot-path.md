@@ -19,6 +19,9 @@ rootfs:
 - **Plan B (direct)**: `boot_pve_*.img` (mainline `Image.gz`+DTB) → `fastboot flash boot`
 
 Оба образа собираются `payload-packer`; rootfs общий.
+По умолчанию `flash_all.sh` ставит **Plan B**; Plan A включается явно:
+`PLAN=uefi DEVICE=whyred ./flash_all.sh` — только после того, как Plan B
+загрузился и подтверждена работа консоли.
 
 ## Последствия
 
