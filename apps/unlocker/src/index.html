@@ -20,7 +20,7 @@
 </head>
 <body>
     <h1>MiToolbox-Native</h1>
-    <div class="sn">target S/N: 19680/68UA04603 (whyred · SDM636)</div>
+    <div class="sn">whyred / lavender (SDM636/660 family)</div>
 
     <div class="card">
         <div id="status" class="muted">checking device…</div>
@@ -30,12 +30,12 @@
 
     <div class="card">
         <strong>Flash image to partition</strong><br/>
-        <span class="muted">dist artifacts: uefi_whyred.img → boot · pve_rootfs_arm64.sparse.img → userdata</span>
+        <span class="muted">boot payloads only (≤512 MiB); the rootfs goes to ./flash_all.sh</span>
         <div>
             <label class="btn"><input type="file" id="img" />Choose .img…</label>
             partition:
             <select id="part">
-                <option>boot</option><option>userdata</option><option>cache</option><option>recovery</option>
+                <option>boot</option><option>cache</option><option>recovery</option>
             </select>
             <button class="danger" onclick="flash()" id="flashBtn">Flash</button>
         </div>
@@ -62,11 +62,16 @@ async function flash(){
     const f = document.getElementById('img').files[0];
     if (!f) return log('pick an image file first');
     const part = document.getElementById('part').value;
+    const s = await invoke('device_status');
+    if (!s.serial) return log('no device serial — refresh first');
+    if (!confirm(`flash ${f.name} (${f.size} bytes) to ${part} on ${s.product} ${s.serial}?`)) return log('aborted');
+    const typed = prompt(`type the device serial (${s.serial}) to confirm:`);
+    if (!typed) return log('aborted');
     document.getElementById('flashBtn').disabled = true;
     try {
         // webkit relative path workaround: Tauri fs gives full path via file object
         const path = f.path || f.name;
-        const out = await invoke('flash_partition', { partition: part, path });
+        const out = await invoke('flash_partition', { partition: part, path, confirmSerial: typed });
         log(`flash ${part}: OK\n${(out||[]).join('\n')}`);
     } catch(e) { log('FAIL: '+e); }
     document.getElementById('flashBtn').disabled = false;

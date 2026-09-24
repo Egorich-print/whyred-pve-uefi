@@ -5,7 +5,7 @@
 //!   INFO<text>  DATA<size:8hex>  OKAY[reason]  FAIL[reason]
 //! Device: Google VID 0x18d1, PID 0xd00d in fastboot mode.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use rusb::{Context as UsbContext, DeviceHandle, UsbContext as _};
 
 pub const GOOGLE_VID: u16 = 0x18d1;
@@ -30,17 +30,25 @@ pub fn parse_response(pkt: &[u8]) -> Result<FastbootResponse> {
     if pkt.len() < 4 {
         bail!("short packet ({})", pkt.len());
     }
-    let text = String::from_utf8_lossy(&pkt[4..]).trim_end_matches('\0').to_string();
+    let text = String::from_utf8_lossy(&pkt[4..])
+        .trim_end_matches('\0')
+        .to_string();
     match &pkt[..4] {
         b"INFO" => Ok(FastbootResponse::Info(text)),
         b"OKAY" => Ok(FastbootResponse::Ok((!text.is_empty()).then_some(text))),
         b"FAIL" => Ok(FastbootResponse::Fail((!text.is_empty()).then_some(text))),
         b"DATA" if pkt.len() >= 12 => {
-            let n = usize::from_str_radix(&pkt[4..12].iter().map(|&b| b as char).collect::<String>(), 16)
-                .map_err(|e| anyhow!("bad DATA size: {e}"))?;
+            let n = usize::from_str_radix(
+                &pkt[4..12].iter().map(|&b| b as char).collect::<String>(),
+                16,
+            )
+            .map_err(|e| anyhow!("bad DATA size: {e}"))?;
             Ok(FastbootResponse::Data(n))
         }
-        other => bail!("unknown response prefix {:?}", String::from_utf8_lossy(other)),
+        other => bail!(
+            "unknown response prefix {:?}",
+            String::from_utf8_lossy(other)
+        ),
     }
 }
 
@@ -49,27 +57,41 @@ pub struct FastbootDevice {
 }
 
 impl FastbootDevice {
-    /// Open the first USB device that looks like a fastboot device.
+    /// Open the only USB device that looks like a fastboot device.
+    /// Refuses to guess when several are attached: picking the first one could
+    /// write to the wrong phone.
     pub fn open_first() -> Result<Self> {
         let ctx = UsbContext::new()?;
+        let mut found: Option<DeviceHandle<UsbContext>> = None;
         for dev in ctx.devices()?.iter() {
             let desc = dev.device_descriptor()?;
-            if desc.vendor_id() == GOOGLE_VID {
-                // PID 0xd00d = fastboot; some OEM firmwares keep other PIDs with
-                // interface name "fastboot" — accept both.
-                if desc.product_id() == FASTBOOT_PID || Self::has_fastboot_iface(&dev)? {
-                    let h = dev.open()?;
-                    h.set_auto_detach_kernel_driver(true).ok();
-                    h.claim_interface(0).or_else(|_| h.claim_interface(1)).context("claim iface")?;
-                    return Ok(Self { handle: h });
+            if desc.vendor_id() != GOOGLE_VID {
+                continue;
+            }
+            // PID 0xd00d = fastboot; some OEM firmwares keep other PIDs with
+            // interface name "fastboot" — accept both.
+            if desc.product_id() == FASTBOOT_PID || Self::has_fastboot_iface(&dev)? {
+                if found.is_some() {
+                    bail!("several fastboot devices attached — disconnect all but one");
                 }
+                let h = dev.open()?;
+                h.set_auto_detach_kernel_driver(true).ok();
+                h.claim_interface(0)
+                    .or_else(|_| h.claim_interface(1))
+                    .context("claim iface")?;
+                found = Some(h);
             }
         }
-        bail!("no fastboot device found")
+        match found {
+            Some(handle) => Ok(Self { handle }),
+            None => bail!("no fastboot device found"),
+        }
     }
 
     fn has_fastboot_iface(dev: &rusb::Device<UsbContext>) -> Result<bool> {
-        let cfg = dev.active_config_descriptor().or_else(|_| dev.config_descriptor(0))?;
+        let cfg = dev
+            .active_config_descriptor()
+            .or_else(|_| dev.config_descriptor(0))?;
         let is_ff = cfg
             .interfaces()
             .flat_map(|i| i.descriptors())
@@ -87,7 +109,9 @@ impl FastbootDevice {
             let n = self.handle.read_bulk(BULK_IN, &mut buf, TIMEOUT_MS)?;
             match parse_response(&buf[..n])? {
                 FastbootResponse::Info(t) => infos.push(t),
-                term @ (FastbootResponse::Ok(_) | FastbootResponse::Fail(_) | FastbootResponse::Data(_)) => {
+                term @ (FastbootResponse::Ok(_)
+                | FastbootResponse::Fail(_)
+                | FastbootResponse::Data(_)) => {
                     return Ok((term, infos));
                 }
             }
@@ -112,16 +136,26 @@ impl FastbootDevice {
         }
     }
 
-    /// Upload + flash a partition. Payload sent in 512MiB-friendly chunks of MAX_PKT.
+    /// Upload + flash a partition. The download phase has its own terminal
+    /// OKAY which must be consumed before `flash:` is sent.
     pub fn flash(&mut self, part: &str, payload: &[u8]) -> Result<Vec<String>> {
+        if payload.len() > 0xFFFF_FFFF {
+            bail!(
+                "payload too large for the fastboot protocol ({} bytes)",
+                payload.len()
+            );
+        }
         let (resp, _) = self.command(&format!("download:{:08x}", payload.len()))?;
         match resp {
             FastbootResponse::Data(n) if n == payload.len() => {}
             FastbootResponse::Data(n) => bail!("device wants {n}, we have {}", payload.len()),
             _ => bail!("no DATA phase for download"),
         }
-        for chunk in payload.chunks(1 << 20) {
-            self.write_all(chunk)?;
+        self.write_all(payload)?;
+        match self.command("")? {
+            (FastbootResponse::Ok(_), _) => {}
+            (FastbootResponse::Fail(e), _) => bail!("download: {}", e.unwrap_or_default()),
+            (term, _) => bail!("unexpected download reply {term:?}"),
         }
         let (term, infos) = self.command(&format!("flash:{part}"))?;
         match term {
@@ -133,7 +167,9 @@ impl FastbootDevice {
 
     fn write_all(&mut self, mut data: &[u8]) -> Result<()> {
         while !data.is_empty() {
-            let n = self.handle.write_bulk(BULK_OUT, &data[..data.len().min(1 << 14)], TIMEOUT_MS)?;
+            let n =
+                self.handle
+                    .write_bulk(BULK_OUT, &data[..data.len().min(1 << 14)], TIMEOUT_MS)?;
             data = &data[n..];
         }
         Ok(())
@@ -155,10 +191,22 @@ mod tests {
     #[test]
     fn parses_all_packet_kinds() {
         assert_eq!(parse_response(b"OKAY").unwrap(), FastbootResponse::Ok(None));
-        assert_eq!(parse_response(b"OKAYdone").unwrap(), FastbootResponse::Ok(Some("done".into())));
-        assert_eq!(parse_response(b"INFOflashing").unwrap(), FastbootResponse::Info("flashing".into()));
-        assert_eq!(parse_response(b"DATA00010000\0").unwrap(), FastbootResponse::Data(0x10000));
-        matches!(parse_response(b"FAILpartition not found"), Ok(FastbootResponse::Fail(Some(_))));
+        assert_eq!(
+            parse_response(b"OKAYdone").unwrap(),
+            FastbootResponse::Ok(Some("done".into()))
+        );
+        assert_eq!(
+            parse_response(b"INFOflashing").unwrap(),
+            FastbootResponse::Info("flashing".into())
+        );
+        assert_eq!(
+            parse_response(b"DATA00010000\0").unwrap(),
+            FastbootResponse::Data(0x10000)
+        );
+        assert!(matches!(
+            parse_response(b"FAILpartition not found"),
+            Ok(FastbootResponse::Fail(Some(_)))
+        ));
         assert!(parse_response(b"WAT?").is_err());
         assert!(parse_response(b"NO").is_err());
         assert!(parse_response(b"DATAsmall").is_err()); // bad hex size
