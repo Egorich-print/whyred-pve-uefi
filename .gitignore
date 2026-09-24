@@ -7,4 +7,10 @@ edk2-msm/
 rootfs/
 build/
 .DS_Store
-.DS_Store
+.env
+.env.*
+backups/
+dist/backups/
+dist/*.bin
+__pycache__/
+/apps/unlocker/src-tauri/crates/*/Cargo.lock
