@@ -1,41 +1,136 @@
-//! Minimal Qualcomm Sahara v2 + Firehose client for reading devinfo from EDL 9008.
+//! Minimal Qualcomm Sahara v2 client: upload a Firehose loader over EDL 9008.
 //!
-//! Sahara protocol: little-endian u32 fields, USB bulk transfers.
-//! Firehose: XML commands over the same USB interface after loader upload.
+//! Protocol: little-endian u32 fields over USB bulk. After the loader is
+//! accepted the device re-enumerates and Firehose XML takes over — this tool
+//! stops there on purpose.
+//!
+//! The loader to upload is never guessed: pass it explicitly, because a loader
+//! built for another SoC can wedge the device until it is power-cycled.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rusb::{Context as UsbContext, UsbContext as _};
-use std::io::{Read, Write};
 use std::time::Duration;
 
 const QCOM_VID: u16 = 0x05C6;
 const QCOM_PID: u16 = 0x9008;
 const TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_WIRE_PACKET: usize = 1 << 20;
 
-// Sahara commands
-const SAHARA_HELLO: u32 = 0x01;
-const SAHARA_HELLO_RESP: u32 = 0x02;
-const SAHARA_CMD_READ: u32 = 0x03;
-const SAHARA_CMD_END: u32 = 0x04;
-const SAHARA_CMD_DONE: u32 = 0x05;
-const SAHARA_CMD_DONE_RESP: u32 = 0x06;
-const SAHARA_CMD_RESET: u32 = 0x07;
-const SAHARA_CMD_MEM_DEBUG: u32 = 0x08;
-const SAHARA_CMD_MEM_READ: u32 = 0x09;
-const SAHARA_CMD_MEM_WRITE: u32 = 0x0A;
-const SAHARA_CMD_EXEC: u32 = 0x0B;
-const SAHARA_CMD_EXEC_RESP: u32 = 0x0C;
-const SAHARA_CMD_EXEC_DATA: u32 = 0x0D;
-const SAHARA_CMD_READ_DATA: u32 = 0x0E;
+const SAHARA_HELLO_REQ: u32 = 0x1;
+const SAHARA_HELLO_RSP: u32 = 0x2;
+const SAHARA_READ_DATA: u32 = 0x3;
+const SAHARA_END_TRANSFER: u32 = 0x4;
+const SAHARA_DONE_REQ: u32 = 0x5;
+const SAHARA_DONE_RSP: u32 = 0x6;
+const SAHARA_RESET_RSP: u32 = 0x8;
+const SAHARA_CMD_READY: u32 = 0xB;
+const SAHARA_SWITCH_MODE: u32 = 0xC;
+const SAHARA_STATUS_SUCCESS: u32 = 0x0;
 
-// Sahara exec commands
-const EXEC_CMD_SERIAL: u32 = 0x04;
-const EXEC_CMD_MSM_HWID: u32 = 0x18;
-const EXEC_CMD_OEM_HASH: u32 = 0x19;
+struct SaharaClient {
+    handle: rusb::DeviceHandle<UsbContext>,
+    ep_in: u8,
+    ep_out: u8,
+    max_cmd_len: u32,
+}
 
-// Sahara modes
-const MODE_IMAGE_TX: u32 = 0x00;
-const MODE_COMMAND: u32 = 0x01;
+impl SaharaClient {
+    fn open() -> Result<Self> {
+        let ctx = UsbContext::new()?;
+        for dev in ctx.devices()?.iter() {
+            let desc = dev.device_descriptor()?;
+            if desc.vendor_id() != QCOM_VID || desc.product_id() != QCOM_PID {
+                continue;
+            }
+            let handle = dev.open()?;
+            let cfg = dev.active_config_descriptor()?;
+            let mut ep_in = 0x81u8;
+            let mut ep_out = 0x01u8;
+            for itf in cfg.interfaces() {
+                for desc in itf.descriptors() {
+                    for ep in desc.endpoint_descriptors() {
+                        match ep.direction() {
+                            rusb::Direction::In => ep_in = ep.address(),
+                            rusb::Direction::Out => ep_out = ep.address(),
+                        }
+                    }
+                }
+            }
+            handle.claim_interface(0).context("claiming interface 0")?;
+            return Ok(Self {
+                handle,
+                ep_in,
+                ep_out,
+                max_cmd_len: 4096,
+            });
+        }
+        bail!("no EDL device found (VID {QCOM_VID:#06x} PID {QCOM_PID:#04x})")
+    }
+
+    fn read(&mut self, len: usize) -> Result<Vec<u8>> {
+        let len = len.clamp(256, MAX_WIRE_PACKET);
+        let mut buf = vec![0u8; len];
+        let n = self
+            .handle
+            .read_bulk(self.ep_in, &mut buf, TIMEOUT)
+            .context("bulk read")?;
+        buf.truncate(n);
+        if buf.len() < 8 {
+            bail!("short packet: {} bytes", buf.len());
+        }
+        Ok(buf)
+    }
+
+    fn write(&mut self, data: &[u8]) -> Result<()> {
+        let n = self
+            .handle
+            .write_bulk(self.ep_out, data, TIMEOUT)
+            .context("bulk write")?;
+        if n != data.len() {
+            bail!("short write: {n} of {} bytes", data.len());
+        }
+        Ok(())
+    }
+
+    fn read_pkt(&mut self) -> Result<Vec<u8>> {
+        self.read(self.max_cmd_len as usize)
+    }
+
+    /// Answer HELLO and return the first command packet, unconsumed.
+    fn handshake(&mut self) -> Result<Vec<u8>> {
+        let hello = self.read(48)?;
+        if le32(&hello, 0) != SAHARA_HELLO_REQ {
+            bail!("expected HELLO (0x1), got {:#x}", le32(&hello, 0));
+        }
+        let version = le32(&hello, 8);
+        let max_cmd_len = le32(&hello, 16);
+        let mode = le32(&hello, 20);
+        if !(1..=3).contains(&version) {
+            bail!("unexpected Sahara version {version}");
+        }
+        if max_cmd_len as usize > MAX_WIRE_PACKET {
+            bail!("device max_cmd_len {max_cmd_len} exceeds {MAX_WIRE_PACKET}");
+        }
+        self.max_cmd_len = max_cmd_len.clamp(256, MAX_WIRE_PACKET as u32);
+        eprintln!(
+            "[sahara] HELLO: version={version}, max_cmd={}, mode={mode}",
+            self.max_cmd_len
+        );
+
+        let mut resp = vec![0u8; 48];
+        put32(&mut resp, 0, SAHARA_HELLO_RSP);
+        put32(&mut resp, 4, 48);
+        put32(&mut resp, 8, version);
+        put32(&mut resp, 12, 1);
+        put32(&mut resp, 16, self.max_cmd_len);
+        put32(&mut resp, 20, mode);
+        for (i, v) in [1u32, 2, 3, 4, 5, 6].iter().enumerate() {
+            put32(&mut resp, 24 + i * 4, *v);
+        }
+        self.write(&resp)?;
+        self.read_pkt()
+    }
+}
 
 fn le32(buf: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
@@ -45,235 +140,165 @@ fn put32(buf: &mut [u8], off: usize, v: u32) {
     buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
 }
 
-struct SaharaClient {
-    handle: rusb::DeviceHandle<UsbContext>,
-    ep_in: u8,
-    ep_out: u8,
-    max_cmd_len: u32,
-    version: u32,
+fn field(pkt: &[u8], off: usize) -> Result<u32> {
+    if pkt.len() < off + 4 {
+        bail!("short packet: need {} bytes, got {}", off + 4, pkt.len());
+    }
+    Ok(le32(pkt, off))
 }
 
-impl SaharaClient {
-    fn open() -> Result<Self> {
-        let ctx = UsbContext::new()?;
-        for dev in ctx.devices()?.iter() {
-            let desc = dev.device_descriptor()?;
-            if desc.vendor_id() == QCOM_VID && desc.product_id() == QCOM_PID {
-                let mut handle = dev.open()?;
-                // find bulk endpoints
-                let cfg = dev.active_config_descriptor()?;
-                let mut ep_in = 0x81u8;
-                let mut ep_out = 0x01u8;
-                for itf in cfg.interfaces() {
-                    for desc in itf.descriptors() {
-                        for ep in desc.endpoint_descriptors() {
-                            match ep.direction() {
-                                rusb::Direction::In => ep_in = ep.address(),
-                                rusb::Direction::Out => ep_out = ep.address(),
-                            }
-                        }
-                    }
-                }
-                handle.claim_interface(0).ok();
-                return Ok(Self { handle, ep_in, ep_out, max_cmd_len: 4096, version: 2 });
+enum Step {
+    Send(Vec<u8>),
+    Wait,
+    Finish,
+}
+
+/// Pure state machine: one device packet in, bytes-to-send (or terminal) out.
+fn step(pkt: &[u8], loader: &[u8]) -> Result<Step> {
+    let cmd = field(pkt, 0)?;
+    match cmd {
+        SAHARA_READ_DATA => {
+            let image = field(pkt, 8)?;
+            let offset = field(pkt, 12)? as usize;
+            let len = field(pkt, 16)? as usize;
+            if image != 0 {
+                bail!("device asked for image id {image}, only 0 is supported");
             }
+            let end = offset
+                .checked_add(len)
+                .ok_or_else(|| anyhow::anyhow!("offset {offset} + len {len} overflows"))?;
+            if end > loader.len() {
+                bail!(
+                    "loader too short: device needs {end} bytes, have {}",
+                    loader.len()
+                );
+            }
+            eprintln!("[sahara] READ_DATA offset={offset:#x} len={len}");
+            Ok(Step::Send(loader[offset..end].to_vec()))
         }
-        bail!("no EDL device found")
-    }
-
-    fn read(&mut self, len: usize) -> Result<Vec<u8>> {
-        let mut buf = vec![0u8; len.max(256)];
-        let n = self.handle.read_bulk(self.ep_in, &mut buf, Duration::from_secs(10))?;
-        buf.truncate(n);
-        Ok(buf)
-    }
-
-    fn write(&mut self, data: &[u8]) -> Result<()> {
-        self.handle.write_bulk(self.ep_out, data, TIMEOUT)?;
-        Ok(())
-    }
-
-    /// Sahara handshake: receive HELLO, send HELLO_RESP
-    fn handshake(&mut self) -> Result<u32> {
-        let hello = self.read(48)?;
-        let cmd = le32(&hello, 0);
-        if cmd != SAHARA_HELLO {
-            bail!("expected HELLO (0x01), got {cmd:#x}");
+        SAHARA_END_TRANSFER => {
+            let status = field(pkt, 12)?;
+            if status != SAHARA_STATUS_SUCCESS {
+                bail!("device reported image transfer failure (status {status:#x})");
+            }
+            let mut done = vec![0u8; 12];
+            put32(&mut done, 0, SAHARA_DONE_REQ);
+            put32(&mut done, 4, 12);
+            put32(&mut done, 8, SAHARA_STATUS_SUCCESS);
+            Ok(Step::Send(done))
         }
-        self.version = le32(&hello, 8);
-        self.max_cmd_len = le32(&hello, 16);
-        let mode = le32(&hello, 20);
-        eprintln!("[sahara] HELLO: version={}, max_cmd={}, mode={}", self.version, self.max_cmd_len, mode);
-
-        // send HELLO_RESP
-        let mut resp = vec![0u8; 48];
-        put32(&mut resp, 0, SAHARA_HELLO_RESP);
-        put32(&mut resp, 4, 48); // length
-        put32(&mut resp, 8, self.version);
-        put32(&mut resp, 12, 1); // version_min
-        put32(&mut resp, 16, self.max_cmd_len);
-        put32(&mut resp, 20, mode); // match device mode
-        // supported modes
-        put32(&mut resp, 24, 0); // mode 0 = image tx
-        put32(&mut resp, 28, 1); // mode 1 = command
-        self.write(&resp)?;
-
-        // read response — could be CMD_READ, CMD_EXEC, CMD_END
-        let pkt = self.read(self.max_cmd_len as usize)?;
-        let cmd = le32(&pkt, 0);
-        eprintln!("[sahara] response: cmd={cmd:#x}");
-        Ok(cmd)
-    }
-
-    /// Execute a Sahara exec command (serial, HWID, etc.)
-    fn exec_cmd(&mut self, exec_id: u32) -> Result<Vec<u8>> {
-        let mut req = vec![0u8; 12];
-        put32(&mut req, 0, SAHARA_CMD_EXEC);
-        put32(&mut req, 4, 12);
-        put32(&mut req, 8, exec_id);
-        self.write(&req)?;
-        let resp = self.read(self.max_cmd_len as usize)?;
-        let cmd = le32(&resp, 0);
-        if cmd == SAHARA_CMD_EXEC_RESP {
-            let data_len = le32(&resp, 4) as usize - 16; // subtract header
-            Ok(resp[16..16 + data_len.min(resp.len() - 16)].to_vec())
-        } else if cmd == SAHARA_CMD_EXEC_DATA {
-            // data follows in next packet
-            let data_len = le32(&resp, 8) as usize;
-            self.read(data_len)
-        } else {
-            bail!("unexpected exec response: cmd={cmd:#x}")
+        SAHARA_DONE_RSP => {
+            let status = field(pkt, 8)?;
+            if status != SAHARA_STATUS_SUCCESS {
+                bail!("loader rejected (DONE_RSP status {status:#x})");
+            }
+            Ok(Step::Finish)
         }
-    }
-
-    /// Handle CMD_READ: device requests loader data at offset+length
-    fn handle_cmd_read_raw(pkt: &[u8], loader: &[u8]) -> Result<(usize, usize)> {
-        let offset = le32(pkt, 8) as usize;
-        let length = le32(pkt, 12) as usize;
-        eprintln!("[sahara] CMD_READ: offset={offset:#x}, length={length}");
-        if offset + length > loader.len() {
-            bail!("loader too short: need {} bytes, have {}", offset + length, loader.len());
-        }
-        Ok((offset, length))
+        SAHARA_RESET_RSP => Ok(Step::Finish),
+        SAHARA_CMD_READY | SAHARA_HELLO_REQ | SAHARA_SWITCH_MODE => Ok(Step::Wait),
+        other => bail!("unexpected Sahara command {other:#x}"),
     }
 }
 
-/// Firehose: send XML command and read response
-fn firehose_cmd(handle: &mut rusb::DeviceHandle<UsbContext>, ep_in: u8, ep_out: u8, cmd: &str) -> Result<String> {
-    let xml = format!("{}\n", cmd);
-    handle.write_bulk(ep_out, xml.as_bytes(), TIMEOUT)?;
-    let mut resp = Vec::new();
-    loop {
-        let mut buf = [0u8; 4096];
-        let n = handle.read_bulk(ep_in, &mut buf, TIMEOUT)?;
-        resp.extend_from_slice(&buf[..n]);
-        let text = String::from_utf8_lossy(&resp);
-        if text.contains("ACK") || text.contains("NAK") || text.contains("</data>") {
-            return Ok(text.to_string());
-        }
-    }
+fn usage() -> &'static str {
+    "usage: sahara-rs <loader.elf|loader.bin>\n\
+     \n\
+     Uploads a Firehose loader to a device in EDL 9008 mode.\n\
+     The loader must match the SoC of the attached device (SDM636 vs SDM660\n\
+     loaders are NOT interchangeable). Storage writes are never issued here:\n\
+     after the loader runs the device re-enumerates and Firehose takes over."
 }
 
 fn main() -> Result<()> {
-    let loader_path = std::env::args().nth(1).unwrap_or_else(|| {
-        "loaders-local/jasmine_prog_emmc_firehose_Sdm660_ddr.elf".to_string()
-    });
-
-    eprintln!("[main] opening EDL device...");
-    let mut sahara = SaharaClient::open()?;
-
-    eprintln!("[main] Sahara handshake...");
-    let first_cmd = sahara.handshake()?;
-
-    let loader = std::fs::read(&loader_path)
-        .with_context(|| format!("reading {loader_path}"))?;
-    eprintln!("[main] loader: {} bytes", loader.len());
-
-    // Main loop: handle commands from device
-    let mut got_loader = false;
-    let mut pkt = match first_cmd {
-        SAHARA_CMD_READ | SAHARA_CMD_READ_DATA => {
-            // need to construct a fake pkt from the first_cmd we already consumed
-            // Actually we consumed it in handshake, need to re-read
-            sahara.read(sahara.max_cmd_len as usize)?
+    let loader_path = match std::env::args().nth(1) {
+        Some(p) => p,
+        None => {
+            eprintln!("{}", usage());
+            bail!("missing loader path");
         }
-        SAHARA_CMD_EXEC => {
-            eprintln!("[main] command mode — reading info...");
-            match sahara.exec_cmd(EXEC_CMD_SERIAL) {
-                Ok(d) => eprintln!("  serial: {}", hex(&d)),
-                Err(e) => eprintln!("  serial: {e}"),
-            }
-            match sahara.exec_cmd(EXEC_CMD_MSM_HWID) {
-                Ok(d) => eprintln!("  hwid: {}", hex(&d)),
-                Err(e) => eprintln!("  hwid: {e}"),
-            }
-            // send END to request image_tx mode
-            let mut end = vec![0u8; 8];
-            put32(&mut end, 0, SAHARA_CMD_END);
-            put32(&mut end, 4, 8);
-            sahara.write(&end)?;
-            sahara.read(sahara.max_cmd_len as usize)?
-        }
-        SAHARA_CMD_END => {
-            let mut done = vec![0u8; 8];
-            put32(&mut done, 0, SAHARA_CMD_DONE);
-            put32(&mut done, 4, 8);
-            sahara.write(&done)?;
-            sahara.read(sahara.max_cmd_len as usize)?
-        }
-        _ => bail!("unexpected first cmd: {first_cmd:#x}"),
     };
+    let loader =
+        std::fs::read(&loader_path).with_context(|| format!("reading loader {loader_path}"))?;
+    if loader.is_empty() {
+        bail!("loader {loader_path} is empty");
+    }
+    eprintln!("[main] loader {loader_path}: {} bytes", loader.len());
+
+    let mut c = SaharaClient::open()?;
+    let mut pkt = c.handshake()?;
 
     loop {
-        let cmd = le32(&pkt, 0);
-        match cmd {
-            SAHARA_CMD_READ | SAHARA_CMD_READ_DATA => {
-                let (offset, length) = SaharaClient::handle_cmd_read_raw(&pkt, &loader)?;
-                sahara.write(&loader[offset..offset + length])?;
-            }
-            SAHARA_CMD_END => {
-                eprintln!("[main] loader upload complete, sending DONE");
-                let mut done = vec![0u8; 8];
-                put32(&mut done, 0, SAHARA_CMD_DONE);
-                put32(&mut done, 4, 8);
-                sahara.write(&done)?;
-                got_loader = true;
-                // read DONE response or reset
-                match sahara.read(64) {
-                    Ok(r) => {
-                        let c = le32(&r, 0);
-                        eprintln!("[main] DONE resp: cmd={c:#x}");
-                    }
-                    Err(_) => {}
-                }
-                break;
-            }
-            SAHARA_CMD_RESET => {
-                eprintln!("[main] device reset — loader accepted");
-                got_loader = true;
-                break;
-            }
-            SAHARA_HELLO => {
-                eprintln!("[main] re-handshake");
-                sahara.handshake()?;
-                break;
-            }
-            _ => {
-                eprintln!("[main] cmd {cmd:#x} during upload, skipping");
+        match step(&pkt, &loader)? {
+            Step::Send(bytes) => c.write(&bytes)?,
+            Step::Wait => {}
+            Step::Finish => {
+                eprintln!("[main] loader accepted");
+                eprintln!(
+                    "[main] the device should now re-enumerate; run Firehose commands against the new device."
+                );
+                return Ok(());
             }
         }
-        pkt = sahara.read(sahara.max_cmd_len as usize)?;
+        pkt = c.read_pkt()?;
     }
-
-    if got_loader {
-        eprintln!("[main] loader uploaded successfully!");
-        eprintln!("[main] device should now enumerate as new USB device.");
-        eprintln!("[main] Run firehose commands (printgpt, r devinfo) with the new device.");
-    }
-
-    Ok(())
 }
 
-fn hex(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pkt(cmd: u32, fields: &[(usize, u32)], len: usize) -> Vec<u8> {
+        let mut v = vec![0u8; len];
+        put32(&mut v, 0, cmd);
+        put32(&mut v, 4, len as u32);
+        for (off, val) in fields {
+            put32(&mut v, *off, *val);
+        }
+        v
+    }
+
+    const LOADER: &[u8] = &[0x7f; 4096];
+
+    #[test]
+    fn full_upload_transcript() {
+        let read = pkt(SAHARA_READ_DATA, &[(8, 0), (12, 0), (16, 80)], 20);
+        match step(&read, LOADER).unwrap() {
+            Step::Send(b) => assert_eq!(b, &LOADER[..80]),
+            _ => panic!("expected loader chunk"),
+        }
+        let read_last = pkt(SAHARA_READ_DATA, &[(8, 0), (12, 4088), (16, 8)], 20);
+        assert!(matches!(step(&read_last, LOADER).unwrap(), Step::Send(_)));
+        let end = pkt(SAHARA_END_TRANSFER, &[(8, 0), (12, 0)], 16);
+        match step(&end, LOADER).unwrap() {
+            Step::Send(b) => assert_eq!(le32(&b, 0), SAHARA_DONE_REQ),
+            _ => panic!("expected DONE request"),
+        }
+        let done = pkt(SAHARA_DONE_RSP, &[(8, 0)], 12);
+        assert!(matches!(step(&done, LOADER).unwrap(), Step::Finish));
+    }
+
+    #[test]
+    fn rejects_failure_statuses() {
+        let end_fail = pkt(SAHARA_END_TRANSFER, &[(8, 0), (12, 1)], 16);
+        assert!(step(&end_fail, LOADER).is_err());
+        let done_fail = pkt(SAHARA_DONE_RSP, &[(8, 2)], 12);
+        assert!(step(&done_fail, LOADER).is_err());
+    }
+
+    #[test]
+    fn rejects_bad_requests() {
+        assert!(step(&[0u8; 4], LOADER).is_err());
+        let past_end = pkt(SAHARA_READ_DATA, &[(8, 0), (12, 4090), (16, 80)], 20);
+        assert!(step(&past_end, LOADER).is_err());
+        let other_image = pkt(SAHARA_READ_DATA, &[(8, 1), (12, 0), (16, 80)], 20);
+        assert!(step(&other_image, LOADER).is_err());
+        let short_read = pkt(SAHARA_READ_DATA, &[(8, 0)], 12);
+        assert!(step(&short_read, LOADER).is_err());
+    }
+
+    #[test]
+    fn reset_response_finishes() {
+        let r = pkt(SAHARA_RESET_RSP, &[], 8);
+        assert!(matches!(step(&r, LOADER).unwrap(), Step::Finish));
+    }
 }

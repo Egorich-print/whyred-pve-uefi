@@ -52,6 +52,9 @@ fn main() -> ExitCode {
 
 fn run(a: Args) -> Result<String, Box<dyn std::error::Error>> {
     let payload = std::fs::read(&a.payload)?;
+    if payload.is_empty() {
+        return Err("empty payload would produce a header-only image".into());
+    }
     if payload.len() > BOOT_PARTITION_MAX - PAGESIZE as usize {
         return Err(format!(
             "payload {} bytes exceeds boot partition budget ({BOOT_PARTITION_MAX})",
@@ -71,10 +74,10 @@ fn run(a: Args) -> Result<String, Box<dyn std::error::Error>> {
         ramdisk_size: 0,
         ramdisk_addr: BASE.wrapping_add(RAMDISK_OFF),
         second_size: 0,
-        second_addr: 0xf00000,
+        second_addr: 0,
         tags_addr: BASE.wrapping_add(TAGS_OFF),
         page_size: PAGESIZE,
-        os_version: ((11 & 0x7f) << 11), // os_version 11.0.0
+        os_version: 11 << 14, // A<<14 | B<<7 | C → 11.0.0
         name: a.name.clone(),
         cmdline,
         extra_cmdline: String::new(),
@@ -101,4 +104,52 @@ fn run(a: Args) -> Result<String, Box<dyn std::error::Error>> {
         a.out.display(),
         a.out.metadata()?.len()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(payload: &str, out: &str) -> Args {
+        Args {
+            payload: payload.into(),
+            out: out.into(),
+            ramdisk: None,
+            header_version: 1,
+            cmdline_extra: String::new(),
+            name: "test".into(),
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_oversized_payloads() {
+        let dir = std::env::temp_dir().join("payload-packer-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let empty = dir.join("empty.bin");
+        let out = dir.join("out.img");
+        std::fs::write(&empty, b"").unwrap();
+        assert!(run(args(empty.to_str().unwrap(), out.to_str().unwrap())).is_err());
+
+        let big = dir.join("big.bin");
+        let f = std::fs::File::create(&big).unwrap();
+        f.set_len(BOOT_PARTITION_MAX as u64).unwrap();
+        drop(f);
+        assert!(run(args(big.to_str().unwrap(), out.to_str().unwrap())).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn packs_small_payload() {
+        let dir = std::env::temp_dir().join("payload-packer-tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let payload = dir.join("payload.bin");
+        let out = dir.join("out.img");
+        std::fs::write(&payload, vec![0xA5u8; 5000]).unwrap();
+        run(args(payload.to_str().unwrap(), out.to_str().unwrap())).unwrap();
+        let img = bootimg_rs::BootImage::parse(&std::fs::read(&out).unwrap()[..]).unwrap();
+        assert_eq!(img.kernel.len(), 5000);
+        assert_eq!(img.second_size, 0);
+        assert_eq!(img.second_addr, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

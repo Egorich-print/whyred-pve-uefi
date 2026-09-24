@@ -29,23 +29,39 @@ fn main() -> ExitCode {
     let res = match cmd {
         Cmd::SimG2Img { input, out } => std::fs::read(&input)
             .map_err(|e| e.to_string())
-            .and_then(|d| {
-                sparse_to_raw(&d[..]).map_err(|e| e.0)
-            })
+            .and_then(|d| sparse_to_raw(&d[..]).map_err(|e| e.0))
             .and_then(|raw| {
                 std::fs::File::create(&out)
                     .and_then(|mut f| f.write_all(&raw))
                     .map_err(|e| e.to_string())
-                    .map(|_| format!("{} -> {} ({} bytes)", input.display(), out.display(), raw.len()))
+                    .map(|_| {
+                        format!(
+                            "{} -> {} ({} bytes)",
+                            input.display(),
+                            out.display(),
+                            raw.len()
+                        )
+                    })
             }),
-        Cmd::Img2Simg { input, out, block_size } => std::fs::read(&input)
+        Cmd::Img2Simg {
+            input,
+            out,
+            block_size,
+        } => std::fs::read(&input)
             .map_err(|e| e.to_string())
             .and_then(|d| raw_to_sparse(&d, block_size).map_err(|e| e.0))
             .and_then(|sp| {
                 std::fs::File::create(&out)
                     .and_then(|mut f| f.write_all(&sp))
                     .map_err(|e| e.to_string())
-                    .map(|_| format!("{} -> {} ({} bytes)", input.display(), out.display(), sp.len()))
+                    .map(|_| {
+                        format!(
+                            "{} -> {} ({} bytes)",
+                            input.display(),
+                            out.display(),
+                            sp.len()
+                        )
+                    })
             }),
     };
     match res {

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bootimg_rs::{unpack, BootImage};
+use bootimg_rs::{BootImage, unpack};
 
 #[derive(clap::Parser)]
 enum Cmd {
@@ -75,7 +75,11 @@ fn run(cmd: Cmd) -> Result<String, Box<dyn std::error::Error>> {
         Cmd::Unpack { image, out } => {
             let img = BootImage::parse(std::fs::File::open(image)?)?;
             let files = unpack(&img, &out)?;
-            Ok(format!("unpacked {} components to {}", files.len(), out.display()))
+            Ok(format!(
+                "unpacked {} components to {}",
+                files.len(),
+                out.display()
+            ))
         }
         Cmd::Pack {
             out,
