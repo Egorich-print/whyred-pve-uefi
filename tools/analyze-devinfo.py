@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Analyze Android devinfo partition dumps for unlock-flag structures.
+"""Heuristic survey of an Android `devinfo` partition dump.
 
 Usage: analyze-devinfo.py <dump.bin> [more.bin ...]
-Looks for: known magics, ASCII lock-related strings, non-zero regions.
+
+This tool only PRINTS observations. It does not know the device_info layout
+and does not locate patch targets: a keyword hit or a non-zero run is a place
+to look, never an offset to write. Confirm any field against the Qualcomm LK
+`struct device_info` (aboot.c) and against a stock dump of the same model
+before touching bytes.
 """
-import re
 import sys
 
 
 def nonzero_regions(data: bytes, min_run=16):
-    """Yield (start, end) of contiguous non-zero runs >= min_run."""
     out = []
     start = None
     for i, b in enumerate(data):
@@ -33,12 +36,30 @@ def hexdump(data: bytes, base: int = 0, limit: int = 512):
 
 
 KEYWORDS = [
-    b"is_unlocked", b"unlocked", b"locked", b"IsUnlock", b"UNLOCK",
-    b"devinfo", b"DEVINFO", b"lock_state", b"unlock_ability", b"bootloader",
-    b"orange", b"green", b"yellow", b"red", b"verifiedbootstate",
-    b"antirollback", b"anti", b"ROLLBACK", b"flash", b"secure",
-    b"CHROMEOS", b"CR50", b"hlos", b"HLOS",
+    b"is_unlocked",
+    b"unlock_ability",
+    b"lock_state",
+    b"verifiedbootstate",
+    b"antirollback",
+    b"devinfo",
+    b"bootloader",
+    b"unlocked",
+    b"locked",
 ]
+
+
+def keyword_hits(data: bytes):
+    out = []
+    for kw in KEYWORDS:
+        low = data.lower()
+        start = 0
+        while True:
+            pos = low.find(kw, start)
+            if pos < 0:
+                break
+            out.append((pos, kw))
+            start = pos + 1
+    return sorted(out)
 
 
 def main(paths):
@@ -46,34 +67,29 @@ def main(paths):
         data = open(path, "rb").read()
         print(f"\n===== {path} ({len(data)} bytes) =====")
 
-        # 1. magic candidates in first sector
         print("\n-- first 256 bytes --")
         hexdump(data[:256])
 
-        # 2. keyword hits with context
-        print("\n-- keyword hits --")
-        seen = set()
-        for kw in KEYWORDS:
-            for m in re.finditer(re.escape(kw), data, re.IGNORECASE):
-                pos = m.start()
-                bucket = pos & ~0xF
-                key = (kw.lower(), bucket)
-                if key in seen:
-                    continue
-                seen.add(key)
-                ctx = data[max(0, pos - 32) : pos + 64]
-                asc = "".join(chr(b) if 32 <= b < 127 else "." for b in ctx)
-                print(f"{pos:#010x} [{kw.decode():20}] {asc}")
+        print("\n-- keyword hits (context only, NOT patch offsets) --")
+        hits = keyword_hits(data)
+        if not hits:
+            print("   none")
+        for pos, kw in hits[:80]:
+            ctx = data[max(0, pos - 32) : pos + 64]
+            asc = "".join(chr(b) if 32 <= b < 127 else "." for b in ctx)
+            print(f"   {pos:#010x} {kw.decode():16} |{asc}|")
+        if len(hits) > 80:
+            print(f"   ... {len(hits) - 80} more")
 
-        # 3. non-zero region map (partition is 8 MiB; most is padding)
         regions = nonzero_regions(data)
-        print(f"\n-- non-zero regions (>=16B): {len(regions)} --")
         total = sum(e - s for s, e in regions)
-        print(f"   total non-zero: {total} bytes")
+        print(f"\n-- non-zero regions (>=16B): {len(regions)}, {total} bytes --")
         for s, e in regions[:40]:
             print(f"   {s:#010x}-{e:#010x} ({e - s} B)")
         if len(regions) > 40:
             print("   ...")
+        print("\nNothing above identifies a writable field. Cross-check the LK")
+        print("device_info layout and a stock dump before patching anything.")
 
 
 if __name__ == "__main__":

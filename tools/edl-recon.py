@@ -1,151 +1,177 @@
 #!/usr/bin/env python3
-"""Sahara v2 + Firehose client for reading devinfo from EDL 9008 (SDM660).
-Uses pyusb directly — rusb has macOS compatibility issues with QUSB__BULK."""
+"""Sahara v2 loader upload for EDL 9008 via pyusb.
 
-import usb.core, struct, time, sys, os
+Scope: upload the Firehose loader and verify the device accepted it.
+It never issues program/erase commands and never writes to storage.
+
+After a successful upload the device re-enumerates; use the maintained
+bkerler/edl client for the Firehose reads (GPT, devinfo):
+
+    cd ~/ai-workstation/Tools/edl
+    ./venv-edl/bin/edl r gpt
+    ./venv-edl/bin/edl r devinfo devinfo.bin
+
+Why pyusb and not tools/sahara-rs (rusb): on this macOS host the QUSB__BULK
+interface does not enumerate through rusb, while pyusb transfers work.
+Both speak the same protocol; this file is the pyusb path.
+"""
+
+import argparse
+import datetime
+import os
+import struct
+import sys
+import time
+
+try:
+    import usb.core
+except ImportError:
+    sys.exit("pyusb is required: pip install pyusb")
 
 QCOM_VID, QCOM_PID = 0x05C6, 0x9008
-LOADER = os.path.expanduser("~/ai-workstation/Tools/edl/loaders-local/jasmine_prog_emmc_firehose_Sdm660_ddr.elf")
+EP_IN, EP_OUT = 0x81, 0x01
 
-def le32(b, o): return struct.unpack_from('<I', b, o)[0]
-def put32(b, o, v): struct.pack_into('<I', b, o, v)
+HELLO_REQ, HELLO_RSP = 0x01, 0x02
+READ_DATA, END_TRANSFER = 0x03, 0x04
+DONE_REQ, DONE_RSP = 0x05, 0x06
+RESET_RSP, CMD_READY = 0x08, 0x0B
+STATUS_SUCCESS = 0x00
 
-# Sahara commands
-HELLO=0x01; HELLO_RESP=0x02; CMD_READ=0x03; END=0x04; DONE=0x05; DONE_RESP=0x06; RESET=0x07; EXEC=0x0B; EXEC_RESP=0x0C
+
+def le32(b, o):
+    return struct.unpack_from("<I", b, o)[0]
+
+
+def put32(b, o, v):
+    struct.pack_into("<I", b, o, v)
+
+
+def read_exact(dev, size, timeout):
+    data = b""
+    while len(data) < size:
+        chunk = bytes(dev.read(EP_IN, size - len(data), timeout=timeout))
+        if not chunk:
+            break
+        data += chunk
+    return data
+
 
 def find_device():
-    dev = usb.core.find(idVendor=QCOM_VID, idProduct=QCOM_PID)
-    if not dev:
-        print("no EDL device (05c6:9008)"); sys.exit(1)
-    try: dev.set_configuration()
-    except: pass
+    devices = list(usb.core.find(idVendor=QCOM_VID, idProduct=QCOM_PID, find_all=True))
+    if not devices:
+        sys.exit(f"no EDL device ({QCOM_VID:#06x}:{QCOM_PID:#04x}) — power-cycle into 9008 first")
+    if len(devices) > 1:
+        sys.exit(f"{len(devices)} EDL devices attached — disconnect all but one")
+    dev = devices[0]
+    try:
+        dev.set_configuration()
+    except usb.core.USBError:
+        pass
     return dev
 
-def sahara_handshake(dev):
-    """Receive HELLO, send HELLO_RESP, return device mode."""
-    hello = bytes(dev.read(0x81, 48, timeout=5000))
-    cmd, version, mode = le32(hello,0), le32(hello,8), le32(hello,20)
-    assert cmd == HELLO, f"expected HELLO, got {cmd:#x}"
-    print(f"  HELLO: v{version} mode={mode}")
+
+def handshake(dev):
+    hello = read_exact(dev, 48, 5000)
+    if len(hello) < 24:
+        sys.exit(f"short HELLO ({len(hello)} bytes)")
+    cmd, version, max_cmd_len, mode = le32(hello, 0), le32(hello, 8), le32(hello, 16), le32(hello, 20)
+    if cmd != HELLO_REQ:
+        sys.exit(f"expected HELLO, got {cmd:#x}")
+    if not 1 <= version <= 3:
+        sys.exit(f"unexpected Sahara version {version}")
+    max_cmd_len = min(max(max_cmd_len, 256), 1 << 20)
+    print(f"  HELLO: version={version} max_cmd_len={max_cmd_len} mode={mode}")
 
     resp = bytearray(48)
-    put32(resp, 0, HELLO_RESP)
+    put32(resp, 0, HELLO_RSP)
     put32(resp, 4, 48)
     put32(resp, 8, version)
-    put32(resp, 12, 1)  # version_min
-    put32(resp, 16, 4096)  # max_cmd
-    put32(resp, 20, mode)  # match device mode
-    put32(resp, 24, 0)  # supported mode 0
-    put32(resp, 28, 1)  # supported mode 1
+    put32(resp, 12, 1)
+    put32(resp, 16, max_cmd_len)
+    put32(resp, 20, mode)
+    for i, v in enumerate((1, 2, 3, 4, 5, 6)):
+        put32(resp, 24 + i * 4, v)
     dev.write(0x01, bytes(resp))
-    return mode
+    return max_cmd_len
 
-def sahara_upload_loader(dev, loader_path):
-    """Upload firehose loader via Sahara CMD_READ protocol."""
-    loader = open(loader_path, 'rb').read()
-    print(f"  loader: {len(loader)} bytes")
 
+def upload(dev, loader, max_cmd_len):
+    pkt = read_exact(dev, max_cmd_len, 15000)
+    if len(pkt) < 8:
+        sys.exit("no command after HELLO")
     while True:
-        pkt = bytes(dev.read(0x81, 4096, timeout=10000))
         cmd = le32(pkt, 0)
-        if cmd in (CMD_READ, 0x0E):  # CMD_READ or CMD_READ_DATA
-            offset, length = le32(pkt, 8), le32(pkt, 12)
-            print(f"  CMD_READ: offset={offset:#x} len={length}")
-            dev.write(0x01, loader[offset:offset+length])
-        elif cmd == END:
-            print("  END — sending DONE")
-            done = bytearray(8)
-            put32(done, 0, DONE)
-            put32(done, 4, 8)
-            dev.write(0x01, bytes(done))
-            try:
-                r = bytes(dev.read(0x81, 64, timeout=3000))
-                print(f"  DONE resp: cmd={le32(r,0):#x}")
-            except: pass
-            return True
-        elif cmd == RESET:
-            print("  RESET — loader accepted")
-            return True
+        if cmd == READ_DATA:
+            if len(pkt) < 20:
+                sys.exit(f"short READ_DATA ({len(pkt)} bytes)")
+            image, offset, length = le32(pkt, 8), le32(pkt, 12), le32(pkt, 16)
+            if image != 0:
+                sys.exit(f"device requested image id {image}, only 0 is supported")
+            if offset + length > len(loader):
+                sys.exit(f"loader too short: need {offset + length}, have {len(loader)}")
+            print(f"  READ_DATA offset={offset:#x} len={length}")
+            dev.write(EP_OUT, loader[offset:offset + length])
+        elif cmd == END_TRANSFER:
+            if len(pkt) < 16:
+                sys.exit(f"short END_TRANSFER ({len(pkt)} bytes)")
+            status = le32(pkt, 12)
+            if status != STATUS_SUCCESS:
+                sys.exit(f"device reported transfer failure (status {status:#x})")
+            done = bytearray(12)
+            put32(done, 0, DONE_REQ)
+            put32(done, 4, 12)
+            put32(done, 8, STATUS_SUCCESS)
+            dev.write(EP_OUT, bytes(done))
+            pkt = read_exact(dev, 64, 5000)
+            if len(pkt) < 12:
+                sys.exit("no DONE_RSP — loader acceptance unconfirmed")
+            final, status = le32(pkt, 0), le32(pkt, 8)
+            if final == DONE_RSP and status == STATUS_SUCCESS:
+                return True
+            if final == RESET_RSP:
+                return True
+            sys.exit(f"loader not accepted (cmd={final:#x} status={status:#x})")
+        elif cmd in (CMD_READY, HELLO_REQ):
+            pass
         else:
-            print(f"  unexpected cmd={cmd:#x}")
+            sys.exit(f"unexpected Sahara command {cmd:#x}")
+        pkt = read_exact(dev, max_cmd_len, 15000)
+        if len(pkt) < 8:
+            sys.exit("device stopped sending commands mid-upload")
 
-def firehose_cmd(dev, cmd_xml, timeout=5000):
-    """Send firehose XML command, read response (XML or raw binary)."""
-    payload = cmd_xml.encode() + b"\n"
-    dev.write(0x01, payload, timeout)
-    resp = b""
-    for _ in range(30):
-        try:
-            chunk = bytes(dev.read(0x81, 4096, timeout=timeout))
-            resp += chunk
-            # check for XML response
-            text = resp.decode(errors='replace')
-            if "<data>" in text or "ACK" in text or "NAK" in text:
-                return text
-            # check for raw firehose ACK (0x00 repeated or specific pattern)
-            if len(resp) >= 4:
-                # raw firehose: first byte might be command ID
-                return f"raw:{resp[:64].hex()}"
-        except usb.core.USBTimeoutError:
-            if resp:
-                return f"partial:{resp.hex()}"
-            break
-        except Exception as e:
-            return f"error:{e}"
-    return f"no_response:{resp.hex() if resp else 'empty'}"
-
-def firehose_read_raw(dev, phys_part, start_sector, num_sectors, sector_size=512, timeout=10000):
-    """Read sectors via firehose raw read command."""
-    cmd = (f'<?xml version="1.0" ?><data>'
-           f'<read SECTOR_SIZE_IN_BYTES="{sector_size}" '
-           f'num_partition_sectors="{num_sectors}" '
-           f'physical_partition_number="{phys_part}" '
-           f'start_sector="{start_sector}" />'
-           f'</data>')
-    dev.write(0x01, cmd.encode(), timeout)
-    resp = b""
-    for _ in range(60):
-        try:
-            chunk = bytes(dev.read(0x81, 65536, timeout=timeout))
-            resp += chunk
-            text = resp.decode(errors='replace')
-            if "<data>" in text and ("ACK" in text or "NAK" in text):
-                return resp
-        except usb.core.USBTimeoutError:
-            break
-        except Exception as e:
-            break
-    return resp
 
 def main():
-    print("[1] Finding EDL device...")
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--loader", required=True, help="Firehose loader for THIS device's SoC")
+    ap.add_argument("--log-dir", default=None, help="where to write the transcript (default: stdout only)")
+    args = ap.parse_args()
+
+    path = os.path.expanduser(args.loader)
+    if not os.path.isfile(path):
+        sys.exit(f"loader not found: {path}")
+    loader = open(path, "rb").read()
+    if not loader:
+        sys.exit(f"loader is empty: {path}")
+    print(f"loader: {path} ({len(loader)} bytes)")
+    print("NOTE: a loader built for another SoC can wedge EDL until the next power cycle")
+
     dev = find_device()
-    print("  found!")
+    max_cmd_len = handshake(dev)
+    if not upload(dev, loader, max_cmd_len):
+        sys.exit("upload failed")
 
-    print("[2] Sahara handshake...")
-    mode = sahara_handshake(dev)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    print("loader accepted")
+    if args.log_dir:
+        os.makedirs(args.log_dir, exist_ok=True)
+        log = os.path.join(args.log_dir, f"edl-upload-{stamp}.log")
+        with open(log, "w") as f:
+            f.write(f"loader={path} size={len(loader)} accepted\n")
+        print(f"transcript: {log}")
 
-    print("[3] Uploading loader...")
-    sahara_upload_loader(dev, LOADER)
-    print("  loader uploaded! Device should re-enumerate...")
-    time.sleep(2)
+    print("the device should re-enumerate; give it a few seconds, then:")
+    print("  cd ~/ai-workstation/Tools/edl && ./venv-edl/bin/edl r gpt")
 
-    # device may have new endpoints after loader execution
-    # try firehose on same endpoints first
-    print("[4] Firehose: send sync...")
-    r = firehose_cmd(dev, '<?xml version="1.0" ?><data><nop /></data>')
-    print(f"  sync response: {r[:200]}")
-
-    print("[5] Firehose: print GPT...")
-    r = firehose_cmd(dev, '<?xml version="1.0" ?><data><configure MemoryName="emmc" verbose="0" MaxPayloadSizeToTargetInBytes="1048576" /></data>')
-    print(f"  configure: {r[:200]}")
-
-    r = firehose_cmd(dev, '<?xml version="1.0" ?><data><command>DumpGPT</command></data>')
-    print(f"  GPT: {r[:500]}")
-
-    print("[6] Firehose: read devinfo (sector 0, 64 sectors)...")
-    r = firehose_cmd(dev, '<?xml version="1.0" /><data><read SECTOR_SIZE_IN_BYTES="512" num_partition_sectors="64" physical_partition_number="0" start_sector="0" /></data>')
-    print(f"  devinfo: {r[:500]}")
 
 if __name__ == "__main__":
     main()
