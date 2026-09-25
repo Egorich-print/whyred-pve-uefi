@@ -14,3 +14,14 @@ dist/backups/
 dist/*.bin
 __pycache__/
 /apps/unlocker/src-tauri/crates/*/Cargo.lock
+apps/unlocker/src-tauri/gen/
+*.pyc
+*~
+*.swp
+*.swo
+.#*
+\#*#
+dist/SHA256SUMS.*
+dist/*.part
+dist/*.partial
+dist/*.tmp

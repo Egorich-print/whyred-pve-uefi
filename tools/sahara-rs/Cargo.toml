@@ -8,4 +8,3 @@ description = "Minimal Qualcomm Sahara v2 + Firehose client for EDL 9008 on SDM6
 [dependencies]
 rusb = "0.9"
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }

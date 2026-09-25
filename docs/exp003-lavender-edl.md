@@ -54,6 +54,6 @@ pads under the SIM shield, driven from a macOS host.
 3. Wait for re-enumeration (`system_profiler SPUSBDataType`); the PID typically
    changes to `05c6:900e`.
 4. `cd ~/ai-workstation/Tools/edl && ./venv-edl/bin/edl r gpt`, then
-   `./venv-edl/bin/edl r devinfo devinfo.bin` (8 MiB per `docs/01-partitions.md`).
+   `./venv-edl/bin/edl r devinfo devinfo.bin` (8 MiB per `docs/exp002-getvar-all.txt`).
 5. `tools/analyze-devinfo.py devinfo.bin` — observations only; any patch needs
    the LK `device_info` layout and a stock dump for comparison.

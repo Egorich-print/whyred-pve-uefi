@@ -11,8 +11,8 @@ AVB 1.0 lenient) — see Vivanta `docs/hardware/lavender/EXP-001.md`.
 | Piece | Detail |
 |-------|--------|
 | `edk2-msm` device port | `configs/devices/lavender.conf` + `Platform/Xiaomi/sdm660/lavender.{dsc,fdf.inc}` + `FdtBlob_compat/lavender.dtb` (GUID 827309bb-7075-45e0-a62b-6af3e30a11a4), panel 1080×2340 |
-| UEFI payload | `dist/uefi_lavender.img` — built by `scripts/build-edk2.sh lavender` (upstream `build.sh --device lavender --boot` after the port is applied); build verified, **never booted on the device** |
-| PVE kernel | same sdm660-mainline tree; DTB variant `sdm660-xiaomi-lavender-tianma`; `dist/boot_pve_lavender.img` (produced by `scripts/build-rootfs.sh lavender`; only the whyred kernel has been built so far) |
+| UEFI payload | `dist/uefi_lavender.img` — built by `scripts/build-edk2.sh pve-builder lavender` (upstream `build.sh --device lavender --boot` after the port is applied); build verified, **never booted on the device** |
+| PVE kernel | same sdm660-mainline tree; DTB variant `sdm660-xiaomi-lavender-tianma`; `dist/boot_pve_lavender.img` (produced by `scripts/build-rootfs.sh pve-builder lavender`) |
 | Rootfs | **shared** with whyred — one 8 GiB ext4 image serves both devices |
 | Flasher | `DEVICE=lavender ./flash_all.sh` (verifies `getvar product` = lavender) |
 
@@ -21,7 +21,7 @@ AVB 1.0 lenient) — see Vivanta `docs/hardware/lavender/EXP-001.md`.
 ```
 pagesize 4096 · base 0x0 · kernel +0x8000 · ramdisk +0x1000000
 second 0 (no second stage) · tags +0x100 · header v1 (ABL accepts abootimg LE too)
-console=ttyMSM0,115200n8 earlycon=msm_serial_dm,0xc170000
+console=ttyMSM0,115200n8   (earlycon=qcom_geni,0xc170000 in the generated extlinux)
 ```
 
 ## Memory map deltas vs stock assumptions

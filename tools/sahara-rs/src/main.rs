@@ -37,10 +37,14 @@ struct SaharaClient {
 impl SaharaClient {
     fn open() -> Result<Self> {
         let ctx = UsbContext::new()?;
+        let mut chosen: Option<Self> = None;
         for dev in ctx.devices()?.iter() {
             let desc = dev.device_descriptor()?;
             if desc.vendor_id() != QCOM_VID || desc.product_id() != QCOM_PID {
                 continue;
+            }
+            if chosen.is_some() {
+                bail!("several EDL devices attached — disconnect all but one");
             }
             let handle = dev.open()?;
             let cfg = dev.active_config_descriptor()?;
@@ -57,14 +61,16 @@ impl SaharaClient {
                 }
             }
             handle.claim_interface(0).context("claiming interface 0")?;
-            return Ok(Self {
+            chosen = Some(Self {
                 handle,
                 ep_in,
                 ep_out,
                 max_cmd_len: 4096,
             });
         }
-        bail!("no EDL device found (VID {QCOM_VID:#06x} PID {QCOM_PID:#04x})")
+        chosen.ok_or_else(|| {
+            anyhow::anyhow!("no EDL device found (VID {QCOM_VID:#06x} PID {QCOM_PID:#04x})")
+        })
     }
 
     fn read(&mut self, len: usize) -> Result<Vec<u8>> {
@@ -99,6 +105,9 @@ impl SaharaClient {
     /// Answer HELLO and return the first command packet, unconsumed.
     fn handshake(&mut self) -> Result<Vec<u8>> {
         let hello = self.read(48)?;
+        if hello.len() < 24 {
+            bail!("short HELLO: {} bytes, need 24", hello.len());
+        }
         if le32(&hello, 0) != SAHARA_HELLO_REQ {
             bail!("expected HELLO (0x1), got {:#x}", le32(&hello, 0));
         }

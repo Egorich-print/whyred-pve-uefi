@@ -7,7 +7,7 @@ Power → XBL (Qualcomm, immutable) → ABL (aboot)
   ABL loads `boot` partition as Android boot.img:
     ┌───────────── Plan A: UEFI ─────────────┐   ┌── Plan B: direct kernel ──┐
     │ payload = edk2-msm UEFI FD             │   │ payload = Image.gz+DTB    │
-    │ SOC_PLATFORM=SDM660, header v1         │   │ mainline sdm660-mainline  │
+    │ SOC_PLATFORM=SDM660, v0 hdr/page 2048│   │ mainline sdm660-mainline  │
     │ SimpleInit GOP over XBL framebuffer    │   │ root=PARTLABEL=userdata   │
     │ exposes EFI env / boot manager         │   │ boots PVE directly        │
     └────────────────────────────────────────┘   └───────────────────────────┘

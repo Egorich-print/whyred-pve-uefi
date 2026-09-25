@@ -21,7 +21,6 @@ import datetime
 import os
 import struct
 import sys
-import time
 
 try:
     import usb.core
@@ -44,6 +43,14 @@ def le32(b, o):
 
 def put32(b, o, v):
     struct.pack_into("<I", b, o, v)
+
+
+def write_exact(dev, data):
+    """pyusb may accept fewer bytes than offered; a short write is a protocol
+    error, not something to discover three packets later."""
+    written = dev.write(EP_OUT, data)
+    if written != len(data):
+        raise ProtocolError(f"short USB write: {written} of {len(data)} bytes")
 
 
 def read_exact(dev, size, timeout):
@@ -91,7 +98,7 @@ def handshake(dev):
     put32(resp, 20, mode)
     for i, v in enumerate((1, 2, 3, 4, 5, 6)):
         put32(resp, 24 + i * 4, v)
-    dev.write(0x01, bytes(resp))
+    write_exact(dev, bytes(resp))
     return max_cmd_len
 
 
@@ -158,7 +165,10 @@ def upload(dev, loader, max_cmd_len):
                 print(f"  READ_DATA offset={info[0]:#x} len={info[1]}")
             else:
                 print("  END — sending DONE")
-            dev.write(EP_OUT, payload)
+            try:
+                write_exact(dev, payload)
+            except ProtocolError as e:
+                sys.exit(f"protocol error: {e}")
             if info is None:
                 # DONE was sent: the acceptance verdict is the next packet
                 pkt = read_exact(dev, 64, 5000)
@@ -166,11 +176,11 @@ def upload(dev, loader, max_cmd_len):
                     sys.exit("no DONE_RSP — loader acceptance unconfirmed")
                 action, _, _ = _safe_step(pkt, loader)
                 if action == FINISH:
-                    return True
+                    return
                 pkt = read_exact(dev, max_cmd_len, 15000)
                 continue
         elif action == FINISH:
-            return True
+            return
         pkt = read_exact(dev, max_cmd_len, 15000)
         if len(pkt) < 8:
             sys.exit("device stopped sending commands mid-upload")
@@ -200,8 +210,7 @@ def main():
 
     dev = find_device()
     max_cmd_len = handshake(dev)
-    if not upload(dev, loader, max_cmd_len):
-        sys.exit("upload failed")
+    upload(dev, loader, max_cmd_len)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     print("loader accepted")

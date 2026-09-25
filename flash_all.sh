@@ -62,11 +62,8 @@ if [[ "${1:-}" == "--check" ]]; then
     done
     validate_boot
     validate_rootfs
-    if [ -f "$DIST/SHA256SUMS" ]; then
-        ( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch"; exit 1; }
-    else
-        echo "note: dist/SHA256SUMS absent — hashes not verified"
-    fi
+    [ -f "$DIST/SHA256SUMS" ] || { echo "dist/SHA256SUMS absent — run scripts/make-dist.sh"; exit 1; }
+    ( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch"; exit 1; }
     echo "OK  $(basename "$BOOT")  $(wc -c <"$BOOT" | tr -d ' ') bytes"
     echo "OK  $(basename "$ROOTFS")  $(wc -c <"$ROOTFS" | tr -d ' ') bytes"
     exit 0
@@ -116,9 +113,8 @@ for f in "$BOOT" "$ROOTFS"; do
 done
 validate_boot
 validate_rootfs
-if [ -f "$DIST/SHA256SUMS" ]; then
-    ( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch — refusing to flash"; exit 1; }
-fi
+[ -f "$DIST/SHA256SUMS" ] || { echo "dist/SHA256SUMS absent — run scripts/make-dist.sh"; exit 1; }
+( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch — refusing to flash"; exit 1; }
 
 echo "[1/3] $BOOT_NAME -> boot"
 fb flash boot "$BOOT"

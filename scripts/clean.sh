@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Remove build junk from the project. Safe to run at any time; idempotent.
+#
+#   scripts/clean.sh              # caches and scratch files only (safe, no git guard)
+#   scripts/clean.sh --dist       # + reproducible images in dist/ (needs clean tree)
+#   scripts/clean.sh --vm         # + build outputs inside the Lima VM (needs clean tree)
+#   scripts/clean.sh --all        # caches + dist
+#   scripts/clean.sh --dry-run    # print what would be removed
+#
+# Never touches: .git/, dist/Image.gz-* , dist/SHA256SUMS, Cargo.lock files,
+# backups/, .env, or anything tracked by git.
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO"
+
+DRY=0; YES=0; DO_DIST=0; DO_VM=0; VM="${VM:-pve-builder}"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dist) DO_DIST=1 ;;
+        --vm) DO_VM=1 ;;
+        --all) DO_DIST=1 ;;
+        --dry-run) DRY=1 ;;
+        --yes|-y) YES=1 ;;
+        --vm-name) VM="$2"; shift ;;
+        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        *) echo "unknown option: $1" >&2; exit 1 ;;
+    esac
+    shift
+done
+
+run() { if [ "$DRY" = 1 ]; then echo "  would remove: $*"; else "$@"; fi; }
+
+tree_dirty() { [ -n "$(git status --porcelain=v1 --untracked-files=all)" ]; }
+
+# ---------------------------------------------------------------- caches ----
+TARGETS=(
+    tools/target
+    apps/unlocker/src-tauri/target
+    apps/unlocker/src-tauri/crates/mibox-core/target
+)
+SCRATCH_GLOBS=(
+    .DS_Store
+    '*.log'
+    '*.part'
+    '*.partial'
+    '*.tmp'
+    '*~'
+    '*.swp'
+    '*.swo'
+    '.#*'
+    '\#*#'
+    'SHA256SUMS.*'
+)
+
+echo "== caches and scratch =="
+for t in "${TARGETS[@]}"; do
+    [ -e "$t" ] || continue
+    echo "  $(du -sh "$t" | cut -f1)  $t"
+    run rm -rf "$t"
+done
+for g in "${SCRATCH_GLOBS[@]}"; do
+    while IFS= read -r -d '' f; do
+        # never remove a tracked file
+        if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then continue; fi
+        echo "  $(wc -c <"$f" | tr -d ' ')  $f"
+        run rm -rf "$f"
+    done < <(find . -path ./.git -prune -o -name "$g" -type f -print0)
+done
+while IFS= read -r -d '' d; do
+    echo "  $(du -sh "$d" | cut -f1)  $d"
+    run rm -rf "$d"
+done < <(find . -path ./.git -prune -o -name __pycache__ -type d -print0)
+# lockfiles of path-dependency crates are per-crate build state, not inputs
+for l in apps/unlocker/src-tauri/crates/*/Cargo.lock; do
+    [ -e "$l" ] || continue
+    echo "  $(wc -c <"$l" | tr -d ' ')  $l"
+    run rm -f "$l"
+done
+
+# ------------------------------------------------------------------ dist ----
+if [ "$DO_DIST" = 1 ]; then
+    if tree_dirty && [ "$YES" != 1 ]; then
+        echo "refusing --dist with a dirty working tree (commit, or pass --yes)" >&2
+        exit 1
+    fi
+    echo "== dist images (reproducible) =="
+    for f in uefi_whyred.img uefi_lavender.img boot_pve_whyred.img boot_pve_lavender.img \
+             pve_rootfs_arm64.sparse.img pve_rootfs_arm64.img; do
+        [ -e "dist/$f" ] || continue
+        echo "  $(du -sh "dist/$f" | cut -f1)  dist/$f"
+        run rm -f "dist/$f"
+    done
+    # keep the manifest truthful: it must describe exactly what is left
+    echo "  regenerating dist/SHA256SUMS for the surviving files"
+    if [ "$DRY" != 1 ]; then
+        ( cd dist && : > SHA256SUMS && for f in *; do
+            case "$f" in
+                SHA256SUMS|backups) continue ;;
+            esac
+            [ -f "$f" ] && shasum -a 256 "$f" >> SHA256SUMS
+        done )
+    fi
+fi
+
+# ------------------------------------------------------------------- vm ----
+if [ "$DO_VM" = 1 ]; then
+    if tree_dirty && [ "$YES" != 1 ]; then
+        echo "refusing --vm with a dirty working tree (commit, or pass --yes)" >&2
+        exit 1
+    fi
+    if ! command -v limactl >/dev/null; then
+        echo "limactl not in PATH" >&2; exit 1
+    fi
+    echo "== Lima VM $VM build outputs (keeps the edk2-msm clone) =="
+    limactl shell "$VM" -- bash -s <<'EOS' || true
+for p in ~/rootfs-build ~/edk2-out ~/out/pve_rootfs_arm64.img ~/out/Image.gz-whyred \
+         ~/out/Image.gz-lavender ~/out/.rootfs.complete /tmp/vm-build-rootfs.sh \
+         /tmp/vm-build-edk2.sh /tmp/vm-port-lavender.sh /tmp/kernel-config.fragment \
+         /tmp/chroot-setup.sh; do
+    if [ -e "$p" ]; then du -sh "$p" 2>/dev/null; sudo rm -rf "$p"; fi
+done
+EOS
+fi
+
+echo "== result =="
+du -sh . | cut -f1 | sed 's/^/  project total: /'
+[ -d dist ] && ( cd dist && ls -1 | tr '\n' ' ' | sed 's/^/  dist: /'; echo )

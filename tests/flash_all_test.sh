@@ -19,6 +19,13 @@ mk_boot() { # valid | broken
     return 0
 }
 
+mk_manifest() { # fixture dir
+    ( cd "$1" && : > SHA256SUMS && for f in *; do
+        case "$f" in SHA256SUMS) continue ;; esac
+        shasum -a 256 "$f" >> SHA256SUMS
+    done )
+}
+
 mk_rootfs() { # logical_bytes
     python3 - "$1" "$2" <<'PY'
 import struct, sys
@@ -45,6 +52,8 @@ check() { # description, expected_exit, extra_env...
 FIXTURE="$TMP/good"; mkdir -p "$FIXTURE"
 mk_boot "$FIXTURE/boot_pve_whyred.img" valid
 mk_rootfs "$FIXTURE/pve_rootfs_arm64.sparse.img" $((8 * 1024 * 1024 * 1024))
+check "artifacts without a manifest" 1
+mk_manifest "$FIXTURE"
 check "complete, consistent artifacts" 0
 check "unknown DEVICE" 1 DEVICE=nokia
 check "unknown PLAN" 1 PLAN=bsd
@@ -52,21 +61,26 @@ check "unknown PLAN" 1 PLAN=bsd
 FIXTURE="$TMP/brokenboot"; mkdir -p "$FIXTURE"
 mk_boot "$FIXTURE/boot_pve_whyred.img" broken
 mk_rootfs "$FIXTURE/pve_rootfs_arm64.sparse.img" $((8 * 1024 * 1024 * 1024))
-check "corrupt boot image" 1
+mk_manifest "$FIXTURE"
+printf 'tampered' >> "$FIXTURE/boot_pve_whyred.img"
+check "tampered artifact vs manifest" 1
 
 FIXTURE="$TMP/bigrootfs"; mkdir -p "$FIXTURE"
 mk_boot "$FIXTURE/boot_pve_whyred.img" valid
 mk_rootfs "$FIXTURE/pve_rootfs_arm64.sparse.img" $((64 * 1024 * 1024 * 1024))
+mk_manifest "$FIXTURE"
 check "rootfs larger than userdata" 1
 
 FIXTURE="$TMP/badsparse"; mkdir -p "$FIXTURE"
 mk_boot "$FIXTURE/boot_pve_whyred.img" valid
 printf 'not sparse' > "$FIXTURE/pve_rootfs_arm64.sparse.img"
+mk_manifest "$FIXTURE"
 check "rootfs is not a sparse image" 1
 
 FIXTURE="$TMP/uefi"; mkdir -p "$FIXTURE"
 cp "$REPO/dist/uefi_whyred.img" "$FIXTURE/uefi_whyred.img"
 mk_rootfs "$FIXTURE/pve_rootfs_arm64.sparse.img" $((8 * 1024 * 1024 * 1024))
+mk_manifest "$FIXTURE"
 check "Plan A payload with matching profile" 0 PLAN=uefi
 
 [ "$FAIL" -eq 0 ] && echo "flash_all gates: ALL PASS" || { echo "flash_all gates: FAILURES"; exit 1; }

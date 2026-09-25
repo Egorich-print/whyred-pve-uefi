@@ -7,4 +7,3 @@ description = "Android sparse image converter (simg2img / img2simg)"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-crc32fast = "1"

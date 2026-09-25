@@ -7,9 +7,11 @@ These are pure functions: no USB, no device, no root.
 """
 import importlib.util
 import os
-import struct
+import re
 import sys
 import unittest
+
+sys.dont_write_bytecode = True
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -88,12 +90,23 @@ class SaharaStateMachine(unittest.TestCase):
         self.assertEqual(edl.step(pkt(edl.RESET_RSP, 8, []), self.LOADER)[0], edl.FINISH)
 
     def test_matches_rust_implementation_constants(self):
-        # both uploaders must agree on the wire protocol
-        self.assertEqual(
-            (edl.HELLO_REQ, edl.HELLO_RSP, edl.READ_DATA, edl.END_TRANSFER,
-             edl.DONE_REQ, edl.DONE_RSP, edl.RESET_RSP, edl.CMD_READY),
-            (0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x8, 0xB),
-        )
+        """Both uploaders must agree on the wire protocol: read the Rust
+        constants instead of restating them, so the check cannot drift."""
+        rust = open(os.path.join(HERE, "sahara-rs", "src", "main.rs"), encoding="utf-8").read()
+        wanted = {
+            "SAHARA_HELLO_REQ": edl.HELLO_REQ,
+            "SAHARA_HELLO_RSP": edl.HELLO_RSP,
+            "SAHARA_READ_DATA": edl.READ_DATA,
+            "SAHARA_END_TRANSFER": edl.END_TRANSFER,
+            "SAHARA_DONE_REQ": edl.DONE_REQ,
+            "SAHARA_DONE_RSP": edl.DONE_RSP,
+            "SAHARA_RESET_RSP": edl.RESET_RSP,
+            "SAHARA_CMD_READY": edl.CMD_READY,
+        }
+        for name, value in wanted.items():
+            m = re.search(rf"const {name}: u32 = (0x[0-9A-Fa-f]+);", rust)
+            self.assertIsNotNone(m, f"{name} not found in sahara-rs")
+            self.assertEqual(int(m.group(1), 16), value, f"{name} differs between Rust and Python")
 
 
 class AnalyzeDevinfo(unittest.TestCase):

@@ -4,7 +4,7 @@ use mibox_core::FastbootDevice;
 use serde::Serialize;
 
 #[derive(Serialize)]
-pub struct DeviceStatus {
+struct DeviceStatus {
     connected: bool,
     serial: Option<String>,
     product: Option<String>,

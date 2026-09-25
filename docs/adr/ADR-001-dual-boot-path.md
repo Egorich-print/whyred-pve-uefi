@@ -18,7 +18,8 @@ rootfs:
 - **Plan A (UEFI)**: `uefi_*.img` (payload edk2-msm) → `fastboot flash boot`
 - **Plan B (direct)**: `boot_pve_*.img` (mainline `Image.gz`+DTB) → `fastboot flash boot`
 
-Оба образа собираются `payload-packer`; rootfs общий.
+Plan B собирается `payload-packer`; Plan A приходит из edk2-msm/abootimg
+(`scripts/build-edk2.sh`). Rootfs общий.
 По умолчанию `flash_all.sh` ставит **Plan B**; Plan A включается явно:
 `PLAN=uefi DEVICE=whyred ./flash_all.sh` — только после того, как Plan B
 загрузился и подтверждена работа консоли.

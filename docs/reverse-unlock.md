@@ -13,8 +13,9 @@ and ABL is not the only writer of eMMC. Qualcomm **EDL** (USB PID 0x9008)
 runs before ABL and, given a firehose programmer accepted by PBL, reads and
 writes raw partitions with no MIUI involvement.
 
-The captured device token (MiUL target material) is **redacted here** and kept
-out of git; only its first bytes are shown for traceability.
+The captured device token (MiUL target material) is **redacted everywhere**,
+including this file: it is device-bound targeting material and has no place in
+a public repository.
 
 ## Assets
 

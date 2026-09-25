@@ -1,7 +1,7 @@
 //! Android sparse image format (system/core/libsparse) reader and writer.
 //! Little-endian on-disk. Chunks: RAW 0xCAC1, FILL 0xCAC2, DONT_CARE 0xCAC3, CRC32 0xCAC4.
 
-use std::io::{self, Read, Seek, Write};
+use std::io::{Read, Seek, Write};
 
 pub const SPARSE_MAGIC: u32 = 0xED26FF3A;
 const RAW: u16 = 0xCAC1;
@@ -70,13 +70,10 @@ pub fn sparse_to_raw(data: &[u8]) -> Result<Vec<u8>> {
     if data.len() < 28 || le32(data, 0) != SPARSE_MAGIC {
         return err("not a sparse image (bad magic)");
     }
-    let _major = le16(data, 4);
-    let _minor = le16(data, 6);
     let file_hdr = le16(data, 8) as usize;
     let chunk_hdr = le16(data, 10) as usize;
     let blk_sz = le32(data, 12) as usize;
     let total_blks = le32(data, 16);
-    let _total_chunks = le32(data, 20);
     if blk_sz == 0 || !blk_sz.is_power_of_two() || file_hdr < 28 || chunk_hdr < 12 {
         return err(format!("bad header: blk={blk_sz}"));
     }
@@ -216,7 +213,7 @@ pub fn raw_to_sparse<R: Read, W: Write + Seek>(
             Some(p) if p.same_as(&kind) => p.push(&block),
             _ => {
                 flush(&mut pending, &mut out, &mut chunks)?;
-                let mut p = Pending::new(kind, MAX_RAW_CHUNK);
+                let mut p = Pending::new(kind);
                 p.push(&block);
                 pending = Some(p);
             }
@@ -252,7 +249,7 @@ enum Kind {
 fn classify(block: &[u8]) -> Kind {
     if block.iter().all(|&b| b == 0) {
         Kind::DontCare
-    } else if block.len().is_multiple_of(4) && block.chunks(4).all(|w| w == &block[..4]) {
+    } else if block.chunks(4).all(|w| w == &block[..4]) {
         Kind::Fill(le32(block, 0))
     } else {
         Kind::Raw
@@ -267,7 +264,7 @@ struct Pending {
 }
 
 impl Pending {
-    fn new(kind: Kind, _cap: usize) -> Self {
+    fn new(kind: Kind) -> Self {
         Self {
             kind,
             blocks: 0,
@@ -326,12 +323,6 @@ pub fn raw_to_sparse_bytes(raw: &[u8], block_size: u32) -> Result<Vec<u8>> {
     let mut out = std::io::Cursor::new(Vec::new());
     raw_to_sparse(raw, raw.len() as u64, block_size, &mut out)?;
     Ok(out.into_inner())
-}
-
-/// Write buffer to any writer.
-pub fn write_all<W: Write>(mut w: W, data: &[u8]) -> io::Result<()> {
-    w.write_all(data)?;
-    w.flush()
 }
 
 #[cfg(test)]

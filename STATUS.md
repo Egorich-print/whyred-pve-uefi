@@ -7,7 +7,8 @@
 
 | Компонент | Состояние | Чем проверено |
 |-----------|-----------|---------------|
-| Rust-тулинг | ✅ | `scripts/check.sh`: 24 теста в tools/ (6 bootimg + 3 property + 9 sparse + 2 payload-packer + 4 sahara), clippy `-D warnings` чист, fmt чист |
+| Чистка дерева | ✅ | `scripts/clean.sh` (-dry-run, идемпотентность), критерии A1–A8 в `docs/CLEANUP-2026-09-26.md` |
+| Rust-тулинг | ✅ | `scripts/check.sh`: 24 теста в tools/ (6 bootimg + 3 property + 9 sparse + 2 payload-packer + 4 sahara) + 1 в mibox-core; clippy `-D warnings` чист, fmt чист |
 | `bootimg-rs` | ✅ | v0–v4 парсинг, структурный детект endianness (регрессия на LE + кратный 256 размер) |
 | `sparse-rs` | ✅ | round-trip + отказ на неполном покрытии/неизвестных chunk'ах/абсурдном размере |
 | `payload-packer` | ✅ | пустой payload отклонён, лимит 64 MiB, `second_addr=0` как в документации |
@@ -18,7 +19,7 @@
 | `bootimg-rs validate` | ✅ | профили `kernel`/`uefi`; встроен в `flash_all.sh` до первой записи |
 | Tauri-приложение | ✅ | `withGlobalTauri`, allowlist boot/cache/recovery, подтверждение серийником, `oem device-info` удалён |
 
-## Артефакты
+## Артефакты и чистка
 
 В git версионируются только `dist/Image.gz-whyred`, `dist/Image.gz-lavender` и
 `dist/SHA256SUMS` — это 32 МБ, которые нельзя воспроизвести дешевле, чем хранить.
@@ -31,8 +32,13 @@
 | `boot_pve_whyred.img` / `boot_pve_lavender.img` | 16.28 MB | `validate --profile kernel` OK: v1, page 4096, kernel @0x8000, console+root в cmdline |
 | `pve_rootfs_arm64.sparse.img` | 1.69 GiB (1 818 792 392 B) | пересобран 2026-09-26 без PVE-стека ядер и apt-кэшей (было 4.76 GB); заголовок проверен: logical 8 GiB ≤ userdata 51.37 GiB |
 
-`./flash_all.sh --check` проверяет манифест, размеры и заголовок boot-образа
-до любой записи.
+`./flash_all.sh --check` проверяет манифест, размеры и заголовки boot-образа и
+sparse-rootfs до любой записи; без `dist/SHA256SUMS` он отказывается работать.
+
+Сборочные выводы (`dist/*.img`) и кэши (`target/`, `__pycache__/`) не хранятся
+в репозитории и удаляются `scripts/clean.sh` (`--dist` — изображения,
+`--vm` — выводы в Lima VM). Подробности и критерии чистки:
+`docs/CLEANUP-2026-09-26.md`.
 
 ## Блокеры (устройство)
 
@@ -51,8 +57,6 @@
 
 ## Известные ограничения (не блокеры)
 
-- `sparse-rs img2simg` держит весь образ в памяти (~17 GiB пик на 8 GiB rootfs).
-  На этой машине (24 GiB) проходит; для меньших хостов нужен streaming.
 - Отпечаток Proxmox-ключа лежит в `pve/proxmox-release-key.fpr` с пометкой
   «verify before trusting»; сборка требует явного `PROXMOX_KEY_FPR`.
 

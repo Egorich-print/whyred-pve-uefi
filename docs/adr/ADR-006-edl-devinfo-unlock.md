@@ -40,5 +40,4 @@ Mi Unlock использует RSA-подпись сервера Xiaomi — во
   (`edl w devinfo …`). `edl wf <file>` пишет от сектора 0 и сносит MBR/GPT.
 - Secure Boot может отвергнуть неподходящий по подписи загрузчик —
   нужен firehose, извлечённый из **whyred** fastboot ROM.
-- Правило: read-only разведка (GPT, devinfo) до любых записей; оригиналы —
-  в `dist/backups/`.
+- Правило: read-only разведка (GPT, devinfo) до любых записей; оригиналы — в `backups/` (вне git).

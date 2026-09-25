@@ -76,12 +76,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cfg-if"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
-
-[[package]]
 name = "clap"
 version = "4.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -126,15 +120,6 @@ name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
-
-[[package]]
-name = "crc32fast"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8498c871161e1742aaa9d52551b2d6ebdd4c3d45a3be423e3728f33b955be550"
-dependencies = [
- "cfg-if",
-]
 
 [[package]]
 name = "find-msvc-tools"
@@ -225,7 +210,6 @@ name = "sahara-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "rusb",
 ]
 
@@ -240,7 +224,6 @@ name = "sparse-rs"
 version = "0.1.0"
 dependencies = [
  "clap",
- "crc32fast",
 ]
 
 [[package]]

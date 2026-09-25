@@ -24,7 +24,7 @@ Authoritative values — postmarketOS `device/testing/device-xiaomi-whyred/devic
 ```
 pagesize            4096
 base                0x00000000
-kernel offset       0x00008000   => phys load 0x80008000
+kernel offset       0x00008000   => phys load 0x40008000 (DRAM base 0x40000000)
 ramdisk offset      0x01000000
 second offset       0x00000000
 tags offset         0x00000100
