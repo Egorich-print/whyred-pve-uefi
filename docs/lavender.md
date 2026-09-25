@@ -20,7 +20,10 @@ AVB 1.0 lenient) — see Vivanta `docs/hardware/lavender/EXP-001.md`.
 
 ```
 pagesize 4096 · base 0x0 · kernel +0x8000 · ramdisk +0x1000000
-second 0 (no second stage) · tags +0x100 · header v1 (ABL accepts abootimg LE too)
+second 0 (no second stage) · tags +0x100
+stock:   header v1, page 4096 (AOSP mkbootimg) — ABL accepts it
+Plan A:  header v0, page 2048 (edk2-msm/abootimg, little-endian)
+Plan B:  header v1, page 4096 (our payload-packer; `bootimg-rs validate` gates it)
 console=ttyMSM0,115200n8   (earlycon=qcom_geni,0xc170000 in the generated extlinux)
 ```
 
