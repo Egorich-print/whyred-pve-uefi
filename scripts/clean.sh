@@ -44,7 +44,7 @@ TARGETS=(
 )
 SCRATCH_GLOBS=(
     .DS_Store
-    '*.pyc' 
+    '*.pyc'
     '*.log'
     '*.part'
     '*.partial'
@@ -76,6 +76,9 @@ for g in "${SCRATCH_GLOBS[@]}"; do
     done < <(find . -path ./.git -prune -o -name "$g" -type f -print0)
 done
 while IFS= read -r -d '' d; do
+    case "$d" in
+        ./backups/*|./dist/backups/*) continue ;;
+    esac
     echo "  $(du -sh "$d" | cut -f1)  $d"
     run rm -rf "$d"
 done < <(find . -path ./.git -prune -o -name __pycache__ -type d -print0)
