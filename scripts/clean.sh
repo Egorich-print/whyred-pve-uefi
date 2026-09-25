@@ -7,11 +7,12 @@
 #   scripts/clean.sh --all        # caches + dist
 #   scripts/clean.sh --dry-run    # print what would be removed
 #
-# Never touches: .git/, dist/Image.gz-*, dist/SHA256SUMS, the two tracked
-# Cargo.lock files, backups/ (forensic evidence), .env, or anything tracked by
-# git. The only lockfile removed is the per-crate build state under
-# apps/unlocker/src-tauri/crates/*/Cargo.lock, which is gitignored and
-# regenerated.
+# Never touches: .git/, dist/Image.gz-*, backups/ (forensic evidence), .env.
+# Every removal path checks `git ls-files` first: a tracked target aborts the
+# run. The only tracked file any mode rewrites is dist/SHA256SUMS, and only so
+# that it keeps describing the files that exist; the two root Cargo.lock files
+# are never removed, while the per-crate build state under
+# apps/unlocker/src-tauri/crates/*/Cargo.lock is.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -82,12 +83,18 @@ while IFS= read -r -d '' d; do
     case "$d" in
         ./backups/*|./dist/backups/*) continue ;;
     esac
+    if git ls-files --error-unmatch "$d" >/dev/null 2>&1; then
+        echo "  $d is tracked — refusing to remove"; exit 1
+    fi
     echo "  $(du -sh "$d" | cut -f1)  $d"
     run rm -rf "$d"
 done < <(find . -path ./.git -prune -o -name __pycache__ -type d -print0)
 # lockfiles of path-dependency crates are per-crate build state, not inputs
 for l in apps/unlocker/src-tauri/crates/*/Cargo.lock; do
     [ -e "$l" ] || continue
+    if git ls-files --error-unmatch "$l" >/dev/null 2>&1; then
+        echo "  $l is tracked — refusing to remove"; exit 1
+    fi
     echo "  $(wc -c <"$l" | tr -d ' ')  $l"
     run rm -f "$l"
 done
@@ -128,12 +135,12 @@ if [ "$DO_VM" = 1 ]; then
     fi
     echo "== Lima VM $VM build outputs (keeps the edk2-msm clone) =="
     VM_LIST=$(cat <<'EOS'
-~/rootfs-build
-~/edk2-out
-~/out/pve_rootfs_arm64.img
-~/out/Image.gz-whyred
-~/out/Image.gz-lavender
-~/out/.rootfs.complete
+$HOME/rootfs-build
+$HOME/edk2-out
+$HOME/out/pve_rootfs_arm64.img
+$HOME/out/Image.gz-whyred
+$HOME/out/Image.gz-lavender
+$HOME/out/.rootfs.complete
 /tmp/vm-build-rootfs.sh
 /tmp/vm-build-edk2.sh
 /tmp/vm-port-lavender.sh
@@ -141,16 +148,18 @@ if [ "$DO_VM" = 1 ]; then
 /tmp/chroot-setup.sh
 EOS
 )
-    if [ "$DRY" = 1 ]; then
-        printf '%s\n' "$VM_LIST" | limactl shell "$VM" -- bash -c \
-            'while read -r p; do [ -e "$p" ] && echo "  would remove (VM): $p"; done' || true
-    else
-    limactl shell "$VM" -- bash -s <<EOS || true
+    # both modes run the same check in the guest; only the action differs
+    limactl shell "$VM" -- env DRY="$DRY" bash -s <<EOS || true
 for p in $VM_LIST; do
-    if [ -e "$p" ]; then du -sh "$p" 2>/dev/null; sudo rm -rf "$p"; fi
+    [ -e "$p" ] || continue
+    if [ "\$DRY" = 1 ]; then
+        echo "  would remove (VM): \$p"
+    else
+        du -sh "\$p" 2>/dev/null
+        sudo rm -rf "\$p"
+    fi
 done
 EOS
-    fi
 fi
 
 echo "== result =="
