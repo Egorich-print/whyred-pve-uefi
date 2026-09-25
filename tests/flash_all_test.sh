@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Exercises the fail-closed gates of flash_all.sh --check. No device is ever
-# touched: --check exits before any fastboot access.
+# touched: --check exits before any fastboot access. Fixtures are generated, so
+# the suite works on a fresh clone without dist/*.img.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 TMP=$(mktemp -d)
@@ -13,10 +14,22 @@ printf '#!/bin/sh\nexit 0\n' > "$stub_bin/fastboot"
 chmod +x "$stub_bin/fastboot"
 export PATH="$stub_bin:$PATH"
 
+# Fixtures are built with our own packer from the tracked kernel, so the gate
+# tests do not depend on dist/*.img existing (they are build output).
+pack() { # out, extra args...
+    local out=$1; shift
+    cargo run --release -q --manifest-path "$REPO/tools/Cargo.toml" -p payload-packer -- \
+        "$REPO/dist/Image.gz-whyred" --out "$out" "$@" >/dev/null
+}
+
 mk_boot() { # valid | broken
-    cp "$REPO/dist/boot_pve_whyred.img" "$1"
-    [ "$2" = broken ] && printf 'not a boot image' | dd of="$1" bs=1 seek=0 conv=notrunc status=none
+    pack "$1" --cmdline-extra "root=PARTLABEL=userdata rootwait rw"
+    [ "${2:-valid}" = broken ] && printf 'not a boot image' | dd of="$1" bs=1 seek=0 conv=notrunc status=none
     return 0
+}
+
+mk_uefi() { # v0 header, no console cmdline — the Plan A profile
+    pack "$1" --header-version 0
 }
 
 mk_manifest() { # fixture dir
@@ -78,7 +91,7 @@ mk_manifest "$FIXTURE"
 check "rootfs is not a sparse image" 1
 
 FIXTURE="$TMP/uefi"; mkdir -p "$FIXTURE"
-cp "$REPO/dist/uefi_whyred.img" "$FIXTURE/uefi_whyred.img"
+mk_uefi "$FIXTURE/uefi_whyred.img"
 mk_rootfs "$FIXTURE/pve_rootfs_arm64.sparse.img" $((8 * 1024 * 1024 * 1024))
 mk_manifest "$FIXTURE"
 check "Plan A payload with matching profile" 0 PLAN=uefi
