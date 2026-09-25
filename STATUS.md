@@ -14,7 +14,7 @@
 | `payload-packer` | ✅ | пустой payload отклонён, лимит 64 MiB, `second_addr=0` как в документации |
 | `sahara-rs` + `edl-recon.py` | ✅ unit-tested | оба автомата HELLO→READ_DATA→END→DONE_RSP с транскрипт-тестами (Rust 4 + Python 4); успех только при `DONE_RSP status=0` |
 | `sparse-rs` | ✅ streaming | кодирование 8 ГиБ при ~13 МБ RSS (было ~17 ГиБ пик), `info` читает заголовок за 28 байт для гейта прошивки |
-| `flash_all.sh` | ✅ fail-closed | product/serial/unlocked проверки, manifest до первой записи, `misc` не трогается, заголовки boot.img и sparse rootfs валидируются, 7 гейт-тестов в `tests/flash_all_test.sh` |
+| `flash_all.sh` | ✅ fail-closed | product/serial/unlocked проверки, manifest до первой записи, `misc` не трогается, заголовки boot.img и sparse rootfs валидируются, 8 гейт-тестов в `tests/flash_all_test.sh` |
 | Сборка EDK2/rootfs | ✅ прогнана | `pve-builder` (Lima, aarch64): EDK2-артефакты перенесены и провалидированы, rootfs пересобирается с нуля (маркер `.pve-build` + чистка apt) |
 | `bootimg-rs validate` | ✅ | профили `kernel`/`uefi`; встроен в `flash_all.sh` до первой записи |
 | Tauri-приложение | ✅ | `withGlobalTauri`, allowlist boot/cache/recovery, подтверждение серийником, `oem device-info` удалён |

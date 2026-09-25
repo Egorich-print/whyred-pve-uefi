@@ -88,11 +88,13 @@ cat > /tmp/chroot-setup.sh <<'EOS'
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-hostname whyred-pve
-echo whyred-pve > /etc/hostname
+HN="${PVE_HOSTNAME:-pve-arm64}"
+# no runtime `hostname` call: a chroot shares the UTS namespace with the build
+# machine, so calling it would rename the Lima VM
+echo "$HN" > /etc/hostname
 cat > /etc/hosts <<EOF2
 127.0.0.1 localhost
-127.0.1.1 whyred-pve
+127.0.1.1 $HN
 10.15.0.1 host
 EOF2
 

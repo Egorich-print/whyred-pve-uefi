@@ -31,10 +31,7 @@ echo "== flash_all safety gates =="
 ./tests/flash_all_test.sh
 
 echo "== dist manifest =="
-if [ -f dist/SHA256SUMS ]; then
-    ( cd dist && shasum -a 256 -c SHA256SUMS )
-else
-    echo "dist/SHA256SUMS absent — run scripts/make-dist.sh after a build"
-fi
+[ -f dist/SHA256SUMS ] || { echo "dist/SHA256SUMS absent — run scripts/make-dist.sh"; exit 1; }
+( cd dist && shasum -a 256 -c SHA256SUMS )
 
 echo "ALL CHECKS PASSED"

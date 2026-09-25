@@ -7,8 +7,11 @@
 #   scripts/clean.sh --all        # caches + dist
 #   scripts/clean.sh --dry-run    # print what would be removed
 #
-# Never touches: .git/, dist/Image.gz-* , dist/SHA256SUMS, Cargo.lock files,
-# backups/, .env, or anything tracked by git.
+# Never touches: .git/, dist/Image.gz-*, dist/SHA256SUMS, the two tracked
+# Cargo.lock files, backups/ (forensic evidence), .env, or anything tracked by
+# git. The only lockfile removed is the per-crate build state under
+# apps/unlocker/src-tauri/crates/*/Cargo.lock, which is gitignored and
+# regenerated.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -41,6 +44,7 @@ TARGETS=(
 )
 SCRATCH_GLOBS=(
     .DS_Store
+    '*.pyc' 
     '*.log'
     '*.part'
     '*.partial'
@@ -60,7 +64,11 @@ for t in "${TARGETS[@]}"; do
     run rm -rf "$t"
 done
 for g in "${SCRATCH_GLOBS[@]}"; do
+    # backups/ holds forensic evidence (EDL logs, partition dumps): never sweep it
     while IFS= read -r -d '' f; do
+        case "$f" in
+            ./backups/*|./dist/backups/*) continue ;;
+        esac
         # never remove a tracked file
         if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then continue; fi
         echo "  $(wc -c <"$f" | tr -d ' ')  $f"

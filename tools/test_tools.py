@@ -92,7 +92,8 @@ class SaharaStateMachine(unittest.TestCase):
     def test_matches_rust_implementation_constants(self):
         """Both uploaders must agree on the wire protocol: read the Rust
         constants instead of restating them, so the check cannot drift."""
-        rust = open(os.path.join(HERE, "sahara-rs", "src", "main.rs"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "sahara-rs", "src", "main.rs"), encoding="utf-8") as fh:
+            rust = fh.read()
         wanted = {
             "SAHARA_HELLO_REQ": edl.HELLO_REQ,
             "SAHARA_HELLO_RSP": edl.HELLO_RSP,
