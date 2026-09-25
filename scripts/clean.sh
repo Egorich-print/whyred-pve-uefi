@@ -8,11 +8,13 @@
 #   scripts/clean.sh --dry-run    # print what would be removed
 #
 # Never touches: .git/, dist/Image.gz-*, backups/ (forensic evidence), .env.
-# Every removal path checks `git ls-files` first: a tracked target aborts the
-# run. The only tracked file any mode rewrites is dist/SHA256SUMS, and only so
-# that it keeps describing the files that exist; the two root Cargo.lock files
-# are never removed, while the per-crate build state under
-# apps/unlocker/src-tauri/crates/*/Cargo.lock is.
+# Host paths: a tracked target aborts the run, a tracked scratch file is
+# skipped, and the two root Cargo.lock files are never removed (only the
+# gitignored per-crate build state under apps/unlocker/src-tauri/crates/ is).
+# The one tracked file any mode rewrites is dist/SHA256SUMS, and only so that
+# it keeps describing the files that exist. Guest paths live outside this
+# repository, so they are constrained by a fixed allowlist instead, and a
+# refusal happens before anything is removed.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -35,6 +37,16 @@ done
 run() { if [ "$DRY" = 1 ]; then echo "  would remove: $*"; else "$@"; fi; }
 
 tree_dirty() { [ -n "$(git status --porcelain=v1 --untracked-files=all)" ]; }
+
+# a refused run must not have mutated anything, so the guard runs first
+if { [ "$DO_DIST" = 1 ] || [ "$DO_VM" = 1 ]; } && tree_dirty && [ "$YES" != 1 ]; then
+    MODE=""
+    [ "$DO_DIST" = 1 ] && MODE="$MODE --dist"
+    [ "$DO_VM" = 1 ] && MODE="$MODE --vm"
+    echo "refusing$MODE with a dirty working tree (commit, or pass --yes);" \
+         "nothing was removed" >&2
+    exit 1
+fi
 
 # ---------------------------------------------------------------- caches ----
 TARGETS=(
@@ -101,14 +113,13 @@ done
 
 # ------------------------------------------------------------------ dist ----
 if [ "$DO_DIST" = 1 ]; then
-    if tree_dirty && [ "$YES" != 1 ]; then
-        echo "refusing --dist with a dirty working tree (commit, or pass --yes)" >&2
-        exit 1
-    fi
     echo "== dist images (reproducible) =="
     for f in uefi_whyred.img uefi_lavender.img boot_pve_whyred.img boot_pve_lavender.img \
              pve_rootfs_arm64.sparse.img pve_rootfs_arm64.img; do
         [ -e "dist/$f" ] || continue
+        if git ls-files --error-unmatch "dist/$f" >/dev/null 2>&1; then
+            echo "  dist/$f is tracked — refusing to remove"; exit 1
+        fi
         echo "  $(du -sh "dist/$f" | cut -f1)  dist/$f"
         run rm -f "dist/$f"
     done
@@ -126,10 +137,6 @@ fi
 
 # ------------------------------------------------------------------- vm ----
 if [ "$DO_VM" = 1 ]; then
-    if tree_dirty && [ "$YES" != 1 ]; then
-        echo "refusing --vm with a dirty working tree (commit, or pass --yes)" >&2
-        exit 1
-    fi
     if ! command -v limactl >/dev/null; then
         echo "limactl not in PATH" >&2; exit 1
     fi
