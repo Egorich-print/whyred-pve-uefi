@@ -23,14 +23,20 @@
 
 В git версионируются только `dist/Image.gz-whyred`, `dist/Image.gz-lavender` и
 `dist/SHA256SUMS` — это 32 МБ, которые нельзя воспроизвести дешевле, чем хранить.
-Остальное пересобирается и лежит в `dist/` локально:
+Остальное — сборный вывод: сейчас в `dist/` его **нет** (удалён
+`scripts/clean.sh --dist` 2026-09-26), и `flash_all.sh` честно откажется
+работать, пока файлов нет. Ниже — проверенные параметры сборки, а не наличие:
 
-| Артефакт | Размер | Проверка |
+| Артефакт (собирается) | Размер при последней сборке | Что было проверено тогда |
 |----------|--------|----------|
-| `uefi_whyred.img` | 6.34 MB | `validate --profile uefi` OK; FD 6 333 313 B — совпадает с измерением в docs/01-partitions.md |
+| `uefi_whyred.img` | 6.34 MB | `validate --profile uefi` OK; FD 6 333 313 B — совпало с измерением в docs/01-partitions.md |
 | `uefi_lavender.img` | 6.01 MB | `validate --profile uefi` OK |
-| `boot_pve_whyred.img` / `boot_pve_lavender.img` | 16.28 MB | `validate --profile kernel` OK: v1, page 4096, kernel @0x8000, console+root в cmdline |
-| `pve_rootfs_arm64.sparse.img` | 1.69 GiB (1 818 792 392 B) | пересобран 2026-09-26 без PVE-стека ядер и apt-кэшей (было 4.76 GB); заголовок проверен: logical 8 GiB ≤ userdata 51.37 GiB |
+| `boot_pve_whyred.img` / `boot_pve_lavender.img` | 16.28 MB каждый | `validate --profile kernel` OK: v1, page 4096, kernel @0x8000, console+root в cmdline |
+| `pve_rootfs_arm64.sparse.img` | 1.69 GiB (1 818 792 392 B) | собрано без PVE-стека ядер и apt-кэшей (было 4.76 GB); заголовок: logical 8 GiB ≤ userdata 51.37 GiB |
+
+Пересборка: `scripts/build-edk2.sh pve-builder <device>` и
+`scripts/build-rootfs.sh pve-builder <device>` (rootfs целиком лежит в
+`~/out/` гостевой VM, поэтому sparse пересоздаётся за минуты).
 
 `./flash_all.sh --check` проверяет манифест, размеры и заголовки boot-образа и
 sparse-rootfs до любой записи; без `dist/SHA256SUMS` он отказывается работать.

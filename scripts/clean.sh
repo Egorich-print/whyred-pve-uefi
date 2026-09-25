@@ -60,6 +60,9 @@ SCRATCH_GLOBS=(
 echo "== caches and scratch =="
 for t in "${TARGETS[@]}"; do
     [ -e "$t" ] || continue
+    if git ls-files --error-unmatch "$t" >/dev/null 2>&1; then
+        echo "  $t is tracked — refusing to remove"; exit 1
+    fi
     echo "  $(du -sh "$t" | cut -f1)  $t"
     run rm -rf "$t"
 done
@@ -124,14 +127,30 @@ if [ "$DO_VM" = 1 ]; then
         echo "limactl not in PATH" >&2; exit 1
     fi
     echo "== Lima VM $VM build outputs (keeps the edk2-msm clone) =="
-    limactl shell "$VM" -- bash -s <<'EOS' || true
-for p in ~/rootfs-build ~/edk2-out ~/out/pve_rootfs_arm64.img ~/out/Image.gz-whyred \
-         ~/out/Image.gz-lavender ~/out/.rootfs.complete /tmp/vm-build-rootfs.sh \
-         /tmp/vm-build-edk2.sh /tmp/vm-port-lavender.sh /tmp/kernel-config.fragment \
-         /tmp/chroot-setup.sh; do
+    VM_LIST=$(cat <<'EOS'
+~/rootfs-build
+~/edk2-out
+~/out/pve_rootfs_arm64.img
+~/out/Image.gz-whyred
+~/out/Image.gz-lavender
+~/out/.rootfs.complete
+/tmp/vm-build-rootfs.sh
+/tmp/vm-build-edk2.sh
+/tmp/vm-port-lavender.sh
+/tmp/kernel-config.fragment
+/tmp/chroot-setup.sh
+EOS
+)
+    if [ "$DRY" = 1 ]; then
+        printf '%s\n' "$VM_LIST" | limactl shell "$VM" -- bash -c \
+            'while read -r p; do [ -e "$p" ] && echo "  would remove (VM): $p"; done' || true
+    else
+    limactl shell "$VM" -- bash -s <<EOS || true
+for p in $VM_LIST; do
     if [ -e "$p" ]; then du -sh "$p" 2>/dev/null; sudo rm -rf "$p"; fi
 done
 EOS
+    fi
 fi
 
 echo "== result =="
