@@ -29,9 +29,11 @@ limactl shell "$VM" -- env DEVICE="$DEVICE" bash /tmp/vm-build-edk2.sh
 
 OUT_NAME="uefi_$DEVICE.img"
 mkdir -p "$REPO/dist"
-limactl shell "$VM" -- test -s "edk2-out/$OUT_NAME" || {
-    echo "build did not produce edk2-out/$OUT_NAME — nothing copied"; exit 1;
+# limactl shell inherits the HOST cwd and $HOME here is the host's
+GUEST_HOME=$(limactl shell "$VM" -- bash -lc 'echo $HOME')
+limactl shell "$VM" -- test -s "$GUEST_HOME/edk2-out/$OUT_NAME" || {
+    echo "build did not produce ~/edk2-out/$OUT_NAME — nothing copied"; exit 1;
 }
-limactl cp "$VM:edk2-out/$OUT_NAME" "$REPO/dist/$OUT_NAME"
+limactl cp "$VM:$GUEST_HOME/edk2-out/$OUT_NAME" "$REPO/dist/$OUT_NAME"
 echo "[*] copied edk2-out/$OUT_NAME -> dist/$OUT_NAME"
 ls -la "$REPO/dist/"

@@ -1,8 +1,8 @@
-use std::io::Write;
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use sparse_rs::{raw_to_sparse, sparse_to_raw};
+use sparse_rs::{raw_to_sparse, read_header, sparse_to_raw};
 
 #[derive(clap::Parser)]
 enum Cmd {
@@ -13,6 +13,9 @@ enum Cmd {
         #[arg(short, long)]
         out: PathBuf,
     },
+    #[command(name = "info")]
+    /// Validate a sparse image header and print its logical size (no decoding)
+    Info { input: PathBuf },
     #[command(name = "img2simg")]
     /// Raw image -> sparse image (like img2simg)
     Img2Simg {
@@ -24,45 +27,57 @@ enum Cmd {
     },
 }
 
+fn simg2img(input: &Path, out: &Path) -> Result<String, String> {
+    let data = std::fs::read(input).map_err(|e| e.to_string())?;
+    let raw = sparse_to_raw(&data[..]).map_err(|e| e.0)?;
+    let mut f = std::fs::File::create(out).map_err(|e| e.to_string())?;
+    f.write_all(&raw).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} -> {} ({} bytes)",
+        input.display(),
+        out.display(),
+        raw.len()
+    ))
+}
+
+fn img2simg(input: &Path, out: &Path, block_size: u32) -> Result<String, String> {
+    let len = std::fs::metadata(input).map_err(|e| e.to_string())?.len();
+    let src = std::fs::File::open(input).map_err(|e| e.to_string())?;
+    let dst = std::fs::File::create(out).map_err(|e| e.to_string())?;
+    let raw_len = raw_to_sparse(src, len, block_size, dst).map_err(|e| e.0)?;
+    let sparse_len = std::fs::metadata(out).map_err(|e| e.to_string())?.len();
+    Ok(format!(
+        "{} ({raw_len} B) -> {} ({sparse_len} B sparse)",
+        input.display(),
+        out.display()
+    ))
+}
+
+fn sparse_info(input: &Path) -> Result<String, String> {
+    let mut f = std::fs::File::open(input).map_err(|e| e.to_string())?;
+    let mut head = [0u8; 28];
+    f.read_exact(&mut head).map_err(|e| e.to_string())?;
+    let h = read_header(&head).map_err(|e| e.0)?;
+    Ok(format!(
+        "{}: block_size={} total_blocks={} logical={} B ({} MiB)",
+        input.display(),
+        h.block_size,
+        h.total_blocks,
+        h.logical_size,
+        h.logical_size / (1 << 20)
+    ))
+}
+
 fn main() -> ExitCode {
     let cmd: Cmd = clap::Parser::parse();
     let res = match cmd {
-        Cmd::SimG2Img { input, out } => std::fs::read(&input)
-            .map_err(|e| e.to_string())
-            .and_then(|d| sparse_to_raw(&d[..]).map_err(|e| e.0))
-            .and_then(|raw| {
-                std::fs::File::create(&out)
-                    .and_then(|mut f| f.write_all(&raw))
-                    .map_err(|e| e.to_string())
-                    .map(|_| {
-                        format!(
-                            "{} -> {} ({} bytes)",
-                            input.display(),
-                            out.display(),
-                            raw.len()
-                        )
-                    })
-            }),
+        Cmd::Info { input } => sparse_info(&input),
+        Cmd::SimG2Img { input, out } => simg2img(&input, &out),
         Cmd::Img2Simg {
             input,
             out,
             block_size,
-        } => std::fs::read(&input)
-            .map_err(|e| e.to_string())
-            .and_then(|d| raw_to_sparse(&d, block_size).map_err(|e| e.0))
-            .and_then(|sp| {
-                std::fs::File::create(&out)
-                    .and_then(|mut f| f.write_all(&sp))
-                    .map_err(|e| e.to_string())
-                    .map(|_| {
-                        format!(
-                            "{} -> {} ({} bytes)",
-                            input.display(),
-                            out.display(),
-                            sp.len()
-                        )
-                    })
-            }),
+        } => img2simg(&input, &out, block_size),
     };
     match res {
         Ok(m) => {

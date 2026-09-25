@@ -95,49 +95,92 @@ def handshake(dev):
     return max_cmd_len
 
 
-def upload(dev, loader, max_cmd_len):
-    pkt = read_exact(dev, max_cmd_len, 15000)
+class ProtocolError(Exception):
+    """Device violated the Sahara protocol, or refused the loader."""
+
+
+SEND, WAIT, FINISH = "send", "wait", "finish"
+
+
+def step(pkt, loader):
+    """Pure state machine: one device packet in, (action, payload) out.
+
+    Mirrors tools/sahara-rs so both uploaders accept the same transcripts.
+    Raises ProtocolError instead of guessing — a wrong loader must fail loudly.
+    """
     if len(pkt) < 8:
-        sys.exit("no command after HELLO")
+        raise ProtocolError(f"short packet: {len(pkt)} bytes")
+    cmd = le32(pkt, 0)
+    if cmd == READ_DATA:
+        if len(pkt) < 20:
+            raise ProtocolError(f"short READ_DATA: {len(pkt)} bytes")
+        image, offset, length = le32(pkt, 8), le32(pkt, 12), le32(pkt, 16)
+        if image != 0:
+            raise ProtocolError(f"device requested image id {image}, only 0 supported")
+        if offset + length > len(loader):
+            raise ProtocolError(f"loader too short: need {offset + length}, have {len(loader)}")
+        return SEND, loader[offset:offset + length], (offset, length)
+    if cmd == END_TRANSFER:
+        if len(pkt) < 16:
+            raise ProtocolError(f"short END_TRANSFER: {len(pkt)} bytes")
+        status = le32(pkt, 12)
+        if status != STATUS_SUCCESS:
+            raise ProtocolError(f"device reported transfer failure (status {status:#x})")
+        done = bytearray(12)
+        put32(done, 0, DONE_REQ)
+        put32(done, 4, 12)
+        put32(done, 8, STATUS_SUCCESS)
+        return SEND, bytes(done), None
+    if cmd == DONE_RSP:
+        if len(pkt) < 12:
+            raise ProtocolError(f"short DONE_RSP: {len(pkt)} bytes")
+        status = le32(pkt, 8)
+        if status != STATUS_SUCCESS:
+            raise ProtocolError(f"loader rejected (DONE_RSP status {status:#x})")
+        return FINISH, None, None
+    if cmd == RESET_RSP:
+        return FINISH, None, None
+    if cmd in (CMD_READY, HELLO_REQ):
+        return WAIT, None, None
+    raise ProtocolError(f"unexpected Sahara command {cmd:#x}")
+
+
+def upload(dev, loader, max_cmd_len):
+    """Drive step() over real USB. Returns when the loader is accepted."""
+    pkt = read_exact(dev, max_cmd_len, 15000)
     while True:
-        cmd = le32(pkt, 0)
-        if cmd == READ_DATA:
-            if len(pkt) < 20:
-                sys.exit(f"short READ_DATA ({len(pkt)} bytes)")
-            image, offset, length = le32(pkt, 8), le32(pkt, 12), le32(pkt, 16)
-            if image != 0:
-                sys.exit(f"device requested image id {image}, only 0 is supported")
-            if offset + length > len(loader):
-                sys.exit(f"loader too short: need {offset + length}, have {len(loader)}")
-            print(f"  READ_DATA offset={offset:#x} len={length}")
-            dev.write(EP_OUT, loader[offset:offset + length])
-        elif cmd == END_TRANSFER:
-            if len(pkt) < 16:
-                sys.exit(f"short END_TRANSFER ({len(pkt)} bytes)")
-            status = le32(pkt, 12)
-            if status != STATUS_SUCCESS:
-                sys.exit(f"device reported transfer failure (status {status:#x})")
-            done = bytearray(12)
-            put32(done, 0, DONE_REQ)
-            put32(done, 4, 12)
-            put32(done, 8, STATUS_SUCCESS)
-            dev.write(EP_OUT, bytes(done))
-            pkt = read_exact(dev, 64, 5000)
-            if len(pkt) < 12:
-                sys.exit("no DONE_RSP — loader acceptance unconfirmed")
-            final, status = le32(pkt, 0), le32(pkt, 8)
-            if final == DONE_RSP and status == STATUS_SUCCESS:
-                return True
-            if final == RESET_RSP:
-                return True
-            sys.exit(f"loader not accepted (cmd={final:#x} status={status:#x})")
-        elif cmd in (CMD_READY, HELLO_REQ):
-            pass
-        else:
-            sys.exit(f"unexpected Sahara command {cmd:#x}")
+        try:
+            action, payload, info = step(pkt, loader)
+        except ProtocolError as e:
+            sys.exit(f"protocol error: {e}")
+        if action == SEND:
+            if info:
+                print(f"  READ_DATA offset={info[0]:#x} len={info[1]}")
+            else:
+                print("  END — sending DONE")
+            dev.write(EP_OUT, payload)
+            if info is None:
+                # DONE was sent: the acceptance verdict is the next packet
+                pkt = read_exact(dev, 64, 5000)
+                if len(pkt) < 12:
+                    sys.exit("no DONE_RSP — loader acceptance unconfirmed")
+                action, _, _ = _safe_step(pkt, loader)
+                if action == FINISH:
+                    return True
+                pkt = read_exact(dev, max_cmd_len, 15000)
+                continue
+        elif action == FINISH:
+            return True
         pkt = read_exact(dev, max_cmd_len, 15000)
         if len(pkt) < 8:
             sys.exit("device stopped sending commands mid-upload")
+
+
+def _safe_step(pkt, loader):
+    try:
+        return step(pkt, loader)
+    except ProtocolError as e:
+        sys.exit(f"protocol error: {e}")
 
 
 def main():

@@ -49,15 +49,20 @@ KEYWORDS = [
 
 
 def keyword_hits(data: bytes):
+    """Longest-match wins: "is_unlocked" is not also reported as "unlocked"."""
+    low = data.lower()
     out = []
-    for kw in KEYWORDS:
-        low = data.lower()
+    covered = []
+    for kw in sorted(KEYWORDS, key=len, reverse=True):
         start = 0
         while True:
             pos = low.find(kw, start)
             if pos < 0:
                 break
-            out.append((pos, kw))
+            end = pos + len(kw)
+            if not any(pos < c_end and end > c_start for c_start, c_end in covered):
+                covered.append((pos, end))
+                out.append((pos, kw))
             start = pos + 1
     return sorted(out)
 

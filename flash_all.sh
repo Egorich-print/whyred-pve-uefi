@@ -21,22 +21,47 @@ case "$DEVICE" in
     *) echo "unknown DEVICE=$DEVICE (whyred|lavender)"; exit 1;;
 esac
 case "$PLAN" in
-    kernel) BOOT_NAME="boot_pve_$DEVICE.img" ;;
-    uefi)   BOOT_NAME="uefi_$DEVICE.img" ;;
+    kernel) BOOT_NAME="boot_pve_$DEVICE.img"; PROFILE=kernel ;;
+    uefi)   BOOT_NAME="uefi_$DEVICE.img";     PROFILE=uefi ;;
     *) echo "unknown PLAN=$PLAN (kernel|uefi)"; exit 1;;
 esac
 
-DIST="$REPO/dist"
+DIST="${DIST_DIR:-$REPO/dist}"   # DIST_DIR exists so tests can point at a fixture
+TOOLS="$REPO/tools"
 BOOT="$DIST/$BOOT_NAME"
 ROOTFS="$DIST/pve_rootfs_arm64.sparse.img"
 LOG="$REPO/flash-$DEVICE.log"
 
 command -v fastboot >/dev/null || { echo "fastboot not in PATH"; exit 1; }
 
+# measured userdata capacity from the whyred GPT dump (docs/01-partitions.md)
+USERDATA_BYTES=55155064320
+
+validate_boot() {
+    cargo run --release -q --manifest-path "$TOOLS/Cargo.toml" -p bootimg-rs -- \
+        validate --profile "$PROFILE" "$BOOT" \
+        || { echo "boot image rejected by bootimg-rs validate — refusing to flash"; exit 1; }
+}
+
+validate_rootfs() {
+    local info logical
+    info=$(cargo run --release -q --manifest-path "$TOOLS/Cargo.toml" -p sparse-rs -- \
+        info "$ROOTFS") \
+        || { echo "rootfs is not a valid sparse image — refusing to flash"; exit 1; }
+    echo "  $info"
+    logical=$(printf '%s' "$info" | sed -n 's/.*logical=\([0-9]*\) B.*/\1/p')
+    if [ -z "$logical" ] || [ "$logical" -gt "$USERDATA_BYTES" ]; then
+        echo "rootfs logical size ${logical:-unknown} exceeds userdata $USERDATA_BYTES — refusing"
+        exit 1
+    fi
+}
+
 if [[ "${1:-}" == "--check" ]]; then
     for f in "$BOOT" "$ROOTFS"; do
         [ -s "$f" ] || { echo "missing or empty: $f"; exit 1; }
     done
+    validate_boot
+    validate_rootfs
     if [ -f "$DIST/SHA256SUMS" ]; then
         ( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch"; exit 1; }
     else
@@ -89,6 +114,8 @@ read -r CONFIRM
 for f in "$BOOT" "$ROOTFS"; do
     [ -s "$f" ] || { echo "missing or empty: $f"; exit 1; }
 done
+validate_boot
+validate_rootfs
 if [ -f "$DIST/SHA256SUMS" ]; then
     ( cd "$DIST" && shasum -a 256 -c SHA256SUMS ) || { echo "SHA256SUMS mismatch — refusing to flash"; exit 1; }
 fi

@@ -24,8 +24,12 @@ echo "== shell syntax =="
 for f in flash_all.sh scripts/*.sh edk2/*.sh pve/*.sh; do bash -n "$f"; done
 sh -n scripts/lavender-boot-fastboot.sh
 
-echo "== python syntax =="
+echo "== python syntax + unit tests =="
 python3 -B -m py_compile tools/*.py
+python3 -B tools/test_tools.py
+
+echo "== flash_all safety gates =="
+./tests/flash_all_test.sh
 
 echo "== dist manifest =="
 if [ -f dist/SHA256SUMS ]; then

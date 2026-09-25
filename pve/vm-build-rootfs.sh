@@ -48,7 +48,23 @@ fi
 
 # ---------------------------------------------------------------- rootfs ----
 R=rootfs
-if [ ! -d "$R/bin" ]; then
+
+# an aborted run can leave /proc and /sys bind-mounted inside the tree, which
+# makes the directory undeletable — always clear stale binds first
+cleanup_binds() {
+    for _ in 1 2 3; do
+        for t in dev/pts dev proc sys ""; do
+            sudo umount -l "$R/$t" 2>/dev/null || true
+        done
+    done
+}
+trap 'cleanup_binds' EXIT
+cleanup_binds
+
+# the marker makes the tree trustworthy: a rootfs from an older build (or one
+# that installed the proxmox-ve meta with its kernel stack) is discarded
+# instead of silently reused
+if [ ! -d "$R/bin" ] || [ ! -f "$R/.pve-build" ]; then
     sudo rm -rf "$R"
     sudo debootstrap --arch=arm64 --variant=minbase --include=systemd,dbus \
         trixie "$R" http://deb.debian.org/debian
@@ -58,16 +74,12 @@ fi
 echo -e '#!/bin/sh\nexit 101' | sudo tee "$R/usr/sbin/policy-rc.d" >/dev/null
 sudo chmod +x "$R/usr/sbin/policy-rc.d"
 
-# clean any stale binds from previous runs
-for _ in 1 2 3; do
-    sudo umount -R -l "$R/dev" "$R/proc" "$R/sys" 2>/dev/null || true
-    sudo umount -l "$R" 2>/dev/null || true
-done
-
 # self-bind makes chroot root a real mountpoint -> unshare(2) propagation
 # changes succeed inside (required by initramfs-tools / proxmox-boot hooks)
 sudo mount --bind "$R"     "$R"
 sudo mount --bind /dev     "$R/dev"
+sudo mkdir -p "$R/dev/pts"
+sudo mount -t devpts devpts "$R/dev/pts"
 sudo mount --bind /proc    "$R/proc"
 sudo mount --bind /sys     "$R/sys"
 
@@ -102,12 +114,20 @@ echo UPDATE_INITRAMFS=no > /etc/initramfs-tools/update-initramfs.conf
 # proxmox-ve meta (which hard-depends on proxmox-default-kernel and cannot
 # build its initramfs inside a chroot) is intentionally excluded.
 # pve-manager brings Web UI :8006, pve-cluster/ha/storage; lxc-pve brings CTs.
-apt-get -y install systemd-sysv locales sudo ifupdown2 \
-    pve-manager lxc-pve postfix chrony open-iscsi
-dpkg --configure -a
+# --no-install-recommends is load-bearing: pve-yew-mobile-gui Recommends
+# proxmox-ve, which Depends on proxmox-default-kernel and drags in the whole
+# PVE kernel stack whose initramfs cannot be built in a chroot. Recommends we
+# actually want (the PVE firewall for the web UI) are listed explicitly.
+apt-get -y --no-install-recommends install systemd-sysv locales sudo ifupdown2 \
+    pve-manager proxmox-firewall lxc-pve postfix chrony open-iscsi
+# conffile prompts must never stall a chroot build; real errors still fail
+dpkg --force-confdef --force-confold --configure -a
 if dpkg -l proxmox-default-kernel 2>/dev/null | grep -q '^ii'; then
     echo "proxmox-default-kernel must not be installed (we boot our own kernel)"; exit 1
 fi
+apt-get -y clean
+rm -rf /var/lib/apt/lists/*
+touch /.pve-build
 echo "en_US.UTF-8 UTF-8" > /etc/locale.gen
 locale-gen
 ln -sf /usr/share/zoneinfo/Europe/Moscow /etc/localtime
@@ -186,6 +206,7 @@ sudo mount "$IMG" "$TMPM"
 sudo rsync -aHAX \
     --exclude=/boot/linux --exclude=/dev/* --exclude=/proc/* \
     --exclude=/sys/* --exclude=/run/* --exclude=/root/chroot-setup.sh \
+    --exclude=/.pve-build \
     "$R/" "$TMPM/"
 sudo umount "$TMPM"; rmdir "$TMPM"
 e2fsck -fy "$IMG" || [ $? -eq 1 ] || { echo "e2fsck failed"; exit 1; }

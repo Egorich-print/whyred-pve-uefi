@@ -27,27 +27,37 @@ XBL/ABL (Qualcomm) ──▶ Plan B: mainline Linux kernel (sdm660-mainline) + P
 | `tools/sahara-rs`      | Qualcomm Sahara v2 loader upload over EDL (unit-tested state machine) |
 | `tools/edl-recon.py`   | Same upload via pyusb (the path that works on this macOS host) |
 | `tools/analyze-devinfo.py` | Read-only survey of a devinfo dump |
+| `tools/test_tools.py` | Unit tests for the EDL state machines and the analyser |
 | `edk2/`                | Lima VM pipeline for `edk2-msm -d <device>` + the lavender port |
 | `pve/`                 | Debian trixie ARM64 + official Proxmox VE arm64 rootfs generator |
 | `apps/unlocker/`       | MiToolbox-Native: Tauri v2 fastboot toolbox (boot/cache/recovery only) |
 | `scripts/`             | Device-parameterized builders, dist manifest |
 | `dist/`                | Build outputs + SHA256SUMS (kernels tracked, large images not) |
-| `docs/`                | Partition map, memory map, unlock research, `docs/adr/` |
+| `docs/`                | Partition map, memory map, unlock research, `docs/adr/`, `docs/AUDIT-2026-09-25.md` |
 | `STATUS.md`            | **Single source of truth** for status and blockers |
 
 ## Build (host, no device needed)
 
 ```sh
-export PROXMOX_KEY_FPR=<release-key fingerprint from wiki.proxmox.com>
+export PROXMOX_KEY_FPR=<release-key fingerprint; see pve/proxmox-release-key.fpr>
 scripts/build-edk2.sh   pve-builder whyred      # → dist/uefi_whyred.img
 scripts/build-rootfs.sh pve-builder whyred      # kernel + rootfs + boot_pve + sparse
 scripts/make-dist.sh                            # regenerate dist/SHA256SUMS
-scripts/check.sh                                # fmt/clippy/tests + script syntax
+scripts/check.sh                                # fmt/clippy/tests + syntax + manifest
 ```
 
-Requires Rust 1.98+, Lima (`limactl`), and ~40 GB free for the rootfs build.
-Artifacts are reproducible, not committed: only `Image.gz-*` and
-`dist/SHA256SUMS` are tracked.
+Requires Rust 1.98+, Lima (`limactl`), and ~40 GB free in the VM.
+The rootfs tree is rebuilt from scratch unless it carries the `.pve-build`
+marker, so a polluted or half-installed chroot can never be reused silently.
+Only `Image.gz-*` and `dist/SHA256SUMS` are tracked in git; every other
+artifact is reproduced by the commands above.
+
+Before flashing, any boot image can be checked on its own:
+
+```sh
+cargo run --release -p bootimg-rs --manifest-path tools/Cargo.toml -- \
+    validate --profile kernel dist/boot_pve_whyred.img
+```
 
 ## Flash (manual, device owner only)
 

@@ -27,17 +27,20 @@ limactl shell "$VM" -- env DEVICE="$DEVICE" PROXMOX_KEY_FPR="$PROXMOX_KEY_FPR" \
     PVE_HOSTNAME="$PVE_HOSTNAME" bash /tmp/vm-build-rootfs.sh
 
 mkdir -p "$REPO/dist"
-KERNEL="out/Image.gz-$DEVICE"
+# limactl shell inherits the HOST cwd and $HOME here is the host's: resolve the
+# guest home once, then use absolute guest paths everywhere
+GUEST_HOME=$(limactl shell "$VM" -- bash -lc 'echo $HOME')
+KERNEL="$GUEST_HOME/out/Image.gz-$DEVICE"
 limactl shell "$VM" -- test -s "$KERNEL" || {
     echo "VM did not produce $KERNEL — the guest build only builds the configured device kernel"; exit 1;
 }
 limactl copy "$VM:$KERNEL" "$REPO/dist/Image.gz-$DEVICE"
-limactl copy "$VM:out/pve_rootfs_arm64.img" "$REPO/dist/"
+limactl copy "$VM:$GUEST_HOME/out/pve_rootfs_arm64.img" "$REPO/dist/"
 
 cd "$REPO/tools"
 cargo run --release -q -p payload-packer -- "$REPO/dist/Image.gz-$DEVICE" \
     --out "$REPO/dist/boot_pve_$DEVICE.img" \
-    --cmdline_extra "root=PARTLABEL=userdata rootwait rw"
+    --cmdline-extra "root=PARTLABEL=userdata rootwait rw"
 
 echo "[*] converting rootfs to Android sparse format (faster fastboot flash)"
 cargo run --release -q -p sparse-rs -- img2simg "$REPO/dist/pve_rootfs_arm64.img" \

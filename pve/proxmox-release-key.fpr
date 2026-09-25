@@ -1,0 +1,10 @@
+# Proxmox VE release key fingerprint for Debian trixie (pve arm64 repository).
+# Retrieved 2026-09-25 from https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg
+# over TLS; key: "Proxmox Trixie Release Key <proxmox-release@proxmox.com>", rsa4096,
+# created 2024-11-10, expires 2034-11-10.
+#
+# VERIFY THIS against Proxmox's own published fingerprint before relying on it.
+# scripts/build-rootfs.sh deliberately requires PROXMOX_KEY_FPR to be exported by
+# the operator instead of reading this file, so a stale value here cannot
+# silently widen trust.
+24B30F06ECC1836A4E5EFECBA7BCD1420BFE778E

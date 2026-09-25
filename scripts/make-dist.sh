@@ -6,13 +6,16 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO/dist"
 
-REQUIRED=(uefi_whyred.img boot_pve_whyred.img pve_rootfs_arm64.img pve_rootfs_arm64.sparse.img)
+# what the operator actually flashes; the raw rootfs is an intermediate and
+# is hashed only when it happens to be present (it is 8 GiB)
+REQUIRED=(uefi_whyred.img boot_pve_whyred.img pve_rootfs_arm64.sparse.img)
 for f in "${REQUIRED[@]}"; do
     [ -s "$f" ] || { echo "missing or empty: dist/$f — run scripts/build-edk2.sh and scripts/build-rootfs.sh"; exit 1; }
 done
 
 ARTIFACTS=()
-for f in "${REQUIRED[@]}" Image.gz-whyred Image.gz-lavender uefi_lavender.img boot_pve_lavender.img; do
+for f in "${REQUIRED[@]}" Image.gz-whyred Image.gz-lavender uefi_lavender.img \
+         boot_pve_lavender.img pve_rootfs_arm64.img; do
     [ -s "$f" ] && ARTIFACTS+=("$f")
 done
 

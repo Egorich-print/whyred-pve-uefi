@@ -19,6 +19,14 @@ arm64** (PVE 9.2, база Debian trixie) с репозиторием на downl
    `deb [arch=arm64] http://download.proxmox.com/debian/pve trixie pve-no-subscription`.
 2. Ставить **компоненты** (`pve-manager`, `lxc-pve`), а не метапакет
    `proxmox-ve`: PVE-ядро не нужно — устройство грузит собственное mainline.
+   **Уточнение (2026-09-26, найдено реальной сборкой):** этого недостаточно
+   само по себе — `apt` по умолчанию тянет Recommends, а
+   `pve-yew-mobile-gui` (в графе веб-интерфейса) имеет
+   `Recommends: proxmox-ve`, а тот `Depends: proxmox-default-kernel` →
+   весь PVE-стек ядер и `initramfs`, который не собирается в chroot.
+   Поэтому установка идёт с `--no-install-recommends`, а нужные Recommends
+   (`proxmox-firewall` для веб-UI) перечисляются явно. Проверка
+   отсутствия `proxmox-default-kernel` остаётся в сборке как утверждение.
 3. chroot подготавливать self-bind (`mount --bind $R $R`) — тогда unshare
    propagation работает, и хуки ядра не падают.
 
