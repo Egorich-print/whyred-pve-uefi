@@ -134,13 +134,16 @@ if [ "$DO_VM" = 1 ]; then
         echo "limactl not in PATH" >&2; exit 1
     fi
     echo "== Lima VM $VM build outputs (keeps the edk2-msm clone) =="
+    # Paths are listed home-relative and resolved in the guest: a value read at
+    # runtime is never re-expanded, so neither ~/ nor $HOME survives a trip
+    # through a variable on the host.
     VM_LIST=$(cat <<'EOS'
-$HOME/rootfs-build
-$HOME/edk2-out
-$HOME/out/pve_rootfs_arm64.img
-$HOME/out/Image.gz-whyred
-$HOME/out/Image.gz-lavender
-$HOME/out/.rootfs.complete
+rootfs-build
+edk2-out
+out/pve_rootfs_arm64.img
+out/Image.gz-whyred
+out/Image.gz-lavender
+out/.rootfs.complete
 /tmp/vm-build-rootfs.sh
 /tmp/vm-build-edk2.sh
 /tmp/vm-port-lavender.sh
@@ -148,18 +151,18 @@ $HOME/out/.rootfs.complete
 /tmp/chroot-setup.sh
 EOS
 )
-    # both modes run the same check in the guest; only the action differs
-    limactl shell "$VM" -- env DRY="$DRY" bash -s <<EOS || true
-for p in $VM_LIST; do
+    # both modes run the same existence check in the guest; only the action differs
+    printf '%s\n' "$VM_LIST" | limactl shell "$VM" -- env DRY="$DRY" bash -c '
+for p in $(cat); do
+    case "$p" in /*) ;; *) p="$HOME/$p" ;; esac
     [ -e "$p" ] || continue
-    if [ "\$DRY" = 1 ]; then
-        echo "  would remove (VM): \$p"
+    if [ "$DRY" = 1 ]; then
+        echo "  would remove (VM): $p"
     else
-        du -sh "\$p" 2>/dev/null
-        sudo rm -rf "\$p"
+        du -sh "$p" 2>/dev/null
+        sudo rm -rf "$p"
     fi
-done
-EOS
+done' || true
 fi
 
 echo "== result =="
